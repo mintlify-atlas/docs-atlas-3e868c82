@@ -1,0 +1,102 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Yoyo",
+  "projectDescription": "Embeddable JIT-compiled memory-safe scripting language for C++20",
+  "theme": "aspen",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#7C3AED",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Language Guide",
+            "pages": [
+              "language/syntax",
+              "language/types",
+              "language/functions",
+              "language/structs-enums",
+              "language/generics",
+              "language/operators",
+              "language/iterators",
+              "language/memory-model"
+            ]
+          },
+          {
+            "group": "Embedding Guide",
+            "pages": [
+              "embedding/overview",
+              "embedding/engine-setup",
+              "embedding/modules",
+              "embedding/backends"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/linked-list",
+              "examples/tic-tac-toe"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/engine",
+              "api/parser",
+              "api/scanner",
+              "api/module"
+            ]
+          },
+          {
+            "group": "Type System",
+            "pages": [
+              "api/type-checker",
+              "api/borrow-checker",
+              "api/expression"
+            ]
+          },
+          {
+            "group": "Backends",
+            "pages": [
+              "api/llvm-backend",
+              "api/yvm-backend"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Memory-safe scripting with borrow checker",
+    "JIT compilation with LLVM and YVM backends",
+    "Static typing with type inference",
+    "Modern syntax inspired by cppfront",
+    "Generics and operator overloading",
+    "Embeddable in C++20 applications"
+  ],
+  "publicApiSurface": [
+    "Yoyo::Engine",
+    "Yoyo::Parser",
+    "Yoyo::Scanner",
+    "Yoyo::ModuleBase",
+    "Yoyo::Type",
+    "Yoyo::BorrowChecker",
+    "Yoyo::LLVM::LLVMEngine",
+    "Yoyo::YVM::YVMEngine"
+  ]
+}
