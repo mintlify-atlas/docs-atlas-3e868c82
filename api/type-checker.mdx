@@ -1,0 +1,609 @@
+---
+title: Type Checker
+description: Constraint-based type inference system for Yoyo
+---
+
+## Overview
+
+The Type Checker is a constraint-based type inference engine that validates types throughout the Yoyo compilation pipeline. It uses a unification-based approach with domain constraints to solve type variables and ensure type safety.
+
+## Core Components
+
+### TypeChecker
+
+The main type checker visitor that traverses the AST and generates type constraints.
+
+```cpp
+struct TypeChecker {
+    std::optional<Type> target;
+    IRGenerator* irgen;
+    TypeCheckerState* state;
+    bool in_mutable_ctx;
+};
+```
+
+<ParamField path="target" type="std::optional<Type>">
+  The expected type for the current expression being checked
+</ParamField>
+
+<ParamField path="irgen" type="IRGenerator*">
+  Pointer to the IR generator for accessing type information
+</ParamField>
+
+<ParamField path="state" type="TypeCheckerState*">
+  Current type checker state containing constraints and variables
+</ParamField>
+
+<ParamField path="in_mutable_ctx" type="bool">
+  Whether the current context allows mutable operations
+</ParamField>
+
+#### Statement Visitors
+
+```cpp
+void operator()(VariableDeclaration*);
+void operator()(WhileStatement*);
+void operator()(ForStatement*);
+void operator()(ReturnStatement*);
+void operator()(ExpressionStatement*);
+void operator()(WithStatement*);
+void operator()(BreakStatement*) {}
+void operator()(ContinueStatement*) {}
+```
+
+These methods handle type checking for various statement types. Empty implementations indicate statements that don't require type checking.
+
+#### Expression Visitors
+
+All expression visitors return a `FunctionType` representing the inferred type:
+
+```cpp
+FunctionType operator()(ConditionalExtraction*) const;
+FunctionType operator()(IfExpression*) const;
+FunctionType operator()(BlockExpression*) const;
+FunctionType operator()(TryExpression*) const;
+FunctionType operator()(IntegerLiteral*) const;
+FunctionType operator()(BooleanLiteral*) const;
+FunctionType operator()(TupleLiteral*) const;
+FunctionType operator()(ArrayLiteral*) const;
+FunctionType operator()(RealLiteral*) const;
+FunctionType operator()(StringLiteral*) const;
+FunctionType operator()(NameExpression*) const;
+FunctionType operator()(GenericNameExpression*) const;
+FunctionType operator()(PrefixOperation*) const;
+FunctionType operator()(BinaryOperation*) const;
+FunctionType operator()(GroupingExpression*) const;
+FunctionType operator()(LogicalOperation*) const;
+FunctionType operator()(PostfixOperation*) const;
+FunctionType operator()(CallOperation*) const;
+FunctionType operator()(SubscriptOperation*) const;
+FunctionType operator()(LambdaExpression*) const;
+FunctionType operator()(ScopeOperation*) const;
+FunctionType operator()(ObjectLiteral*) const;
+FunctionType operator()(NullLiteral*) const;
+FunctionType operator()(AsExpression*) const;
+FunctionType operator()(CharLiteral*) const;
+FunctionType operator()(GCNewExpression*) const;
+FunctionType operator()(MacroInvocation*) const;
+FunctionType operator()(SpawnExpression*) const;
+```
+
+#### Helper Methods
+
+```cpp
+TypeChecker new_target(std::optional<Type>, bool in_mutable_ctx = false) const;
+TypeChecker targetless(bool in_mutable_ctx = false) const;
+```
+
+<ResponseField name="new_target" type="TypeChecker">
+  Creates a new type checker with a different target type
+</ResponseField>
+
+<ResponseField name="targetless" type="TypeChecker">
+  Creates a new type checker without a target type
+</ResponseField>
+
+---
+
+## TypeCheckerState
+
+Manages the state during type checking, including variables, constraints, and type unification.
+
+```cpp
+struct TypeCheckerState {
+    std::vector<std::unordered_map<std::string, Type>> variables;
+    std::vector<TypeCheckerConstraint> constraints;
+    std::vector<TypeCheckerConstraint>* write_new_constraints_to;
+    UnificationTable tbl;
+    Type return_type;
+};
+```
+
+<ParamField path="variables" type="std::vector<std::unordered_map<std::string, Type>>">
+  Stack of variable scopes, each mapping variable names to their types
+</ParamField>
+
+<ParamField path="constraints" type="std::vector<TypeCheckerConstraint>">
+  List of type constraints to be solved
+</ParamField>
+
+<ParamField path="tbl" type="UnificationTable">
+  Union-find structure for type variable unification
+</ParamField>
+
+<ParamField path="return_type" type="Type">
+  The return type of the function being checked
+</ParamField>
+
+### Methods
+
+```cpp
+Type new_type_var();
+void add_constraint(TypeCheckerConstraint);
+void unify_types(const Type&, const Type&, IRGenerator* irgen);
+void push_variable_block();
+void pop_variable_block();
+void create_variable(std::string name, Type type);
+Type best_repr(const Type&);
+Domain* get_type_domain(const Type&);
+void resolve_function(FunctionDeclaration* decl, IRGenerator* irgen, const FunctionSignature&);
+bool is_non_owning(const Type&, IRGenerator*);
+```
+
+<ResponseField name="new_type_var" type="Type">
+  Creates a fresh type variable for inference
+</ResponseField>
+
+<ResponseField name="add_constraint">
+  Adds a new constraint to be checked during solving
+</ResponseField>
+
+<ResponseField name="unify_types">
+  Unifies two type variables, making them equal
+</ResponseField>
+
+<ResponseField name="push_variable_block">
+  Enters a new variable scope
+</ResponseField>
+
+<ResponseField name="pop_variable_block">
+  Exits the current variable scope
+</ResponseField>
+
+<ResponseField name="create_variable">
+  Registers a new variable with its type in the current scope
+</ResponseField>
+
+<ResponseField name="best_repr" type="Type">
+  Returns the most solved representation of a type
+</ResponseField>
+
+<ResponseField name="get_type_domain" type="Domain*">
+  Returns the domain (possible concrete types) for a type variable
+</ResponseField>
+
+<ResponseField name="is_non_owning" type="bool">
+  Checks if a type is non-owning without instantiating generics
+</ResponseField>
+
+---
+
+## UnificationTable
+
+A union-find data structure for managing type variable equivalence classes.
+
+```cpp
+struct UnificationTable {
+    std::vector<uint32_t> parents;
+    std::vector<uint32_t> rank;
+    std::unordered_map<uint32_t, Domain> domains;
+};
+```
+
+<ParamField path="parents" type="std::vector<uint32_t>">
+  Parent pointers for union-find
+</ParamField>
+
+<ParamField path="rank" type="std::vector<uint32_t>">
+  Rank for union-by-rank optimization
+</ParamField>
+
+<ParamField path="domains" type="std::unordered_map<uint32_t, Domain>">
+  Maps type variable IDs to their possible concrete types
+</ParamField>
+
+### Methods
+
+```cpp
+uint32_t type_to_id(const Type& tp);
+Type id_to_type(uint32_t id);
+uint32_t find(uint32_t id);
+uint32_t unite(uint32_t id, uint32_t id2, IRGenerator *irgen, TypeCheckerState*);
+Domain* domain_of(uint32_t id);
+```
+
+---
+
+## Domain
+
+Represents the set of possible concrete types a type variable can be.
+
+```cpp
+class Domain {
+    bool is_infinite = true;
+public:
+    struct Group {
+        std::vector<Type> types;
+        void add_type(Type&&);
+    };
+    
+    Group concrete_types;
+};
+```
+
+### Methods
+
+```cpp
+[[nodiscard]] std::optional<Error> add_and_intersect(Group&&, TypeCheckerState*);
+[[nodiscard]] std::optional<Error> constrain_to_store(uint64_t);
+[[nodiscard]] std::optional<Error> constrain_to_store(int64_t);
+[[nodiscard]] std::optional<Error> constrain_to_store(double);
+[[nodiscard]] std::optional<Error> merge_intersect(Domain&&, TypeCheckerState*);
+[[nodiscard]] std::optional<Error> equal_constrain(Type other);
+bool is_solved();
+Type get_solution();
+```
+
+<ResponseField name="add_and_intersect">
+  Adds a group of possible types and intersects with the current domain
+</ResponseField>
+
+<ResponseField name="constrain_to_store">
+  Constrains the domain to types that can store the given value
+</ResponseField>
+
+<ResponseField name="is_solved" type="bool">
+  Returns true if the domain has been reduced to a single type
+</ResponseField>
+
+<ResponseField name="get_solution" type="Type">
+  Returns the solved type if the domain is solved
+</ResponseField>
+
+---
+
+## Type Constraints
+
+The type checker uses a variety of constraints to express type requirements:
+
+<Expandable title="Numeric Constraints">
+
+### IsIntegerConstraint
+```cpp
+struct IsIntegerConstraint {
+    Type type;
+    ASTNode* expr;
+};
+```
+Ensures a type is an integer (i8-i64/u8-u64).
+
+### CanStoreIntegerConstraint
+```cpp
+struct CanStoreIntegerConstraint {
+    Type type;
+    std::variant<uint64_t, int64_t> value;
+    ASTNode* expr;
+};
+```
+Ensures a type can store a specific integer value.
+
+### IsFloatConstraint
+```cpp
+struct IsFloatConstraint {
+    Type type;
+    ASTNode* expr;
+};
+```
+Ensures a type is a floating point value (f32/f64).
+
+### CanStoreRealConstraint
+```cpp
+struct CanStoreRealConstraint {
+    Type type;
+    double value;
+    ASTNode* expr;
+};
+```
+Ensures a type can store a specific floating point value.
+
+</Expandable>
+
+<Expandable title="Operator Constraints">
+
+### BinaryOperableConstraint
+```cpp
+struct BinaryOperableConstraint {
+    Type left;
+    Type right;
+    Type result;
+    TokenType op;
+    std::unordered_map<OperatorOverload*, std::unordered_map<std::string, Type>> substitution_cache;
+    ASTNode* expr;
+};
+```
+Ensures a binary operation `left op right` is defined and returns `result`.
+
+### HasUnaryMinusConstraint
+```cpp
+struct HasUnaryMinusConstraint {
+    Type type;
+    Type ret;
+    ASTNode* expr;
+};
+```
+Ensures a type supports unary minus.
+
+### HasUnaryNotConstraint
+```cpp
+struct HasUnaryNotConstraint {
+    Type type;
+    Type ret;
+    ASTNode* expr;
+};
+```
+Ensures a type supports unary not.
+
+### IndexOperableConstraint
+```cpp
+struct IndexOperableConstraint {
+    Type left;
+    Type right;
+    Type result;
+    bool is_mutable;
+    ASTNode* expr;
+};
+```
+Ensures subscript operation `left[right]` is valid.
+
+</Expandable>
+
+<Expandable title="Reference Constraints">
+
+### IsReferenceToConstraint
+```cpp
+struct IsReferenceToConstraint {
+    Type type;
+    Type other;
+    ASTNode* expr;
+};
+```
+Ensures `type` is `&other` or `&mut other`.
+
+### IsNotReferenceConstraint
+```cpp
+struct IsNotReferenceConstraint {
+    Type type;
+    ASTNode* expr;
+};
+```
+Ensures a type is not a reference.
+
+### OwningConstraint
+```cpp
+struct OwningConstraint {
+    Type type;
+    ASTNode* expr;
+};
+```
+Ensures a type is owning.
+
+### NonOwningConstraint
+```cpp
+struct NonOwningConstraint {
+    Type type;
+    ASTNode* expr;
+};
+```
+Ensures a type is non-owning (a reference).
+
+### BorrowResultConstraint
+```cpp
+struct BorrowResultConstraint {
+    Type subject;
+    Type result;
+    ASTNode* expr;
+    std::unordered_map<OperatorOverload*, std::unordered_map<std::string, Type>> substitution_cache;
+};
+```
+Ensures borrowing `subject` results in `result`.
+
+</Expandable>
+
+<Expandable title="Function Constraints">
+
+### IsInvocableConstraint
+```cpp
+struct IsInvocableConstraint {
+    Type type;
+    ASTNode* expr;
+};
+```
+Ensures a type can be called (function or lambda).
+
+### ValidAsFunctionArgConstraint
+```cpp
+struct ValidAsFunctionArgConstraint {
+    Type type;
+    Type function;
+    uint32_t arg_no;
+    ASTNode* expr;
+};
+```
+Ensures a type is valid as a specific function argument.
+
+### IsReturnOfConstraint
+```cpp
+struct IsReturnOfConstraint {
+    Type type;
+    Type function;
+    ASTNode* expr;
+};
+```
+Ensures a type is the return type of a function.
+
+</Expandable>
+
+<Expandable title="Structural Constraints">
+
+### EqualConstraint
+```cpp
+struct EqualConstraint {
+    Type type1;
+    Type type2;
+    ASTNode* expr;
+};
+```
+Ensures two types are equal.
+
+### HasFieldConstraint
+```cpp
+struct HasFieldConstraint {
+    Type subject;
+    std::string field_name;
+    Type result;
+    ASTNode* expr;
+};
+```
+Ensures a type has a specific field.
+
+### AllFieldsConstraint
+```cpp
+struct AllFieldsConstraint {
+    std::vector<std::string> fields;
+    Type subject;
+    ASTNode* expr;
+};
+```
+Ensures a type has all specified fields.
+
+### ImplInterfaceConstraint
+```cpp
+struct ImplInterfaceConstraint {
+    Type type;
+    Type interface;
+    ASTNode* expr;
+};
+```
+Ensures a type implements a specific interface.
+
+</Expandable>
+
+<Expandable title="Pattern Matching Constraints">
+
+### ExtractsToConstraint
+```cpp
+struct ExtractsToConstraint {
+    Type type;
+    Type dst;
+    ASTNode* expr;
+};
+```
+Used for conditional extraction: `if |value| (object as type) { ... }`
+
+### RefExtractsToConstraint
+```cpp
+struct RefExtractsToConstraint {
+    Type type;
+    Type dst;
+    bool is_mut;
+    ASTNode* expr;
+};
+```
+Used for borrowing conditional extraction.
+
+### AsConstraint
+```cpp
+struct AsConstraint {
+    Type input_type;
+    Type dest;
+    Type result;
+    ASTNode* expr;
+};
+```
+Handles type conversions with union variant handling.
+
+</Expandable>
+
+---
+
+## ConstraintSolver
+
+Solves type constraints and updates the type checker state.
+
+```cpp
+struct ConstraintSolver {
+    bool has_error;
+    IRGenerator* irgen;
+    TypeCheckerState* state;
+    std::vector<TypeCheckerConstraint> temp_constraints;
+};
+```
+
+Each constraint type has a corresponding solver method that returns `bool` indicating whether progress was made:
+
+```cpp
+bool operator()(IsIntegerConstraint& con);
+bool operator()(CanStoreIntegerConstraint& con);
+bool operator()(IsFloatConstraint& con);
+bool operator()(CanStoreRealConstraint& con);
+bool operator()(ToStringConstraint& con);
+bool operator()(HasUnaryMinusConstraint& con);
+bool operator()(HasUnaryNotConstraint& con);
+bool operator()(IsReferenceToConstraint& con);
+bool operator()(IsNotReferenceConstraint& con);
+bool operator()(BinaryOperableConstraint& con);
+bool operator()(ComparableConstraint& con);
+bool operator()(EqualConstraint& con);
+bool operator()(OwningConstraint& con);
+bool operator()(IsInvocableConstraint& con);
+bool operator()(ValidAsFunctionArgConstraint& con);
+bool operator()(IsReturnOfConstraint& con);
+bool operator()(ImplInterfaceConstraint& con);
+bool operator()(ExtractsToConstraint& con);
+bool operator()(RefExtractsToConstraint& con);
+bool operator()(NonOwningConstraint& con);
+bool operator()(AsConstraint& con);
+bool operator()(ConvertibleToConstraint& con);
+bool operator()(BinaryDotCompatibleConstraint& con);
+bool operator()(ElseRefExtractsToConstraint& con);
+bool operator()(ElseExtractsToConstraint& con);
+bool operator()(IfStatementConstraint& con);
+bool operator()(EqualOrIsVoidConstraint& con);
+bool operator()(IndexOperableConstraint& con);
+bool operator()(HasFieldConstraint& con);
+bool operator()(AllFieldsConstraint& con);
+bool operator()(BorrowResultConstraint& con);
+bool operator()(BorrowResultMutConstraint& con);
+bool operator()(IfEqualThenConstrain& con);
+```
+
+### Methods
+
+```cpp
+void add_new_constraint(TypeCheckerConstraint);
+```
+
+Adds a new constraint during solving, which will be processed in subsequent iterations.
+
+---
+
+## Usage in Pipeline
+
+The type checker operates after parsing and before IR generation:
+
+1. **Parse** - AST is constructed
+2. **Type Check** - Constraints are generated and solved
+3. **Borrow Check** - Ownership and lifetimes are verified
+4. **IR Generation** - Typed AST is lowered to IR
+
+The type checker ensures that all type annotations are correct, all operations are type-safe, and all generic parameters are properly instantiated before code generation begins.

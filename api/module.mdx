@@ -1,0 +1,590 @@
+---
+title: "ModuleBase"
+description: "Base class for Yoyo modules managing declarations and symbol resolution"
+---
+
+## Overview
+
+The `ModuleBase` class is the foundation for Yoyo's module system. It manages all declarations within a module including functions, classes, types, constants, and nested modules. Each module maintains symbol tables for different kinds of declarations and provides methods for symbol lookup and resolution.
+
+## Class Definition
+
+```cpp
+namespace Yoyo {
+    class ModuleBase
+    {
+    public:
+        struct FunctionDetails {
+            std::string name;
+            FunctionSignature sig;
+            std::vector<Attribute> attributes;
+            bool is_private() const;
+        };
+        
+        virtual ~ModuleBase() = default;
+        
+        // Public members
+        ModuleOverloadDetails overloads;
+        Engine* engine;
+        std::unordered_map<std::string, ModuleBase*> modules;
+        std::string module_hash;
+        
+        // Declaration storage
+        std::unordered_map<std::string, std::vector<FunctionDetails>> functions;
+        std::unordered_map<std::string, std::vector<std::pair<std::string, std::unique_ptr<ClassDeclaration>>>> classes;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<UnionDeclaration>>> unions;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericFunctionDeclaration>>> generic_fns;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<InterfaceDeclaration>>> interfaces;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericAliasDeclaration>>> generic_aliases;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericInterfaceDeclaration>>> generic_interfaces;
+        std::unordered_map<std::string, std::unordered_map<std::string, Type>> aliases;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericClassDeclaration>>> generic_classes;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<EnumDeclaration>>> enums;
+        std::unordered_map<std::string, std::vector<std::tuple<Type, std::string, std::variant<Constant, ConstantDeclaration*>>>> constants;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<UnionDeclaration>>> generic_unions;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<MacroDeclaration>>> macros;
+        
+        // Symbol lookup methods
+        std::pair<std::string, FunctionDetails*> findFunction(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericFunctionDeclaration*> findGenericFn(const std::string& block, const std::string& name);
+        Type* findAlias(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericAliasDeclaration*> findGenericAlias(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericClassDeclaration*> findGenericClass(const std::string& block, const std::string& name);
+        std::pair<std::string, InterfaceDeclaration*> findInterface(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericInterfaceDeclaration*> findGenericInterface(const std::string& block, const std::string& name);
+        std::pair<std::string, EnumDeclaration*> findEnum(const std::string& block, const std::string& name);
+        MacroDeclaration* findMacro(const std::string& block, const std::string& name);
+        std::pair<std::string, UnionDeclaration*> findUnion(const std::string& block, const std::string& name);
+        std::pair<std::string, std::pair<std::string, std::unique_ptr<ClassDeclaration>>*> findClass(const std::string& block, const std::string& name);
+        std::pair<std::string, std::tuple<Type, std::string, std::variant<Constant, ConstantDeclaration*>>*> findConst(const std::string& block, const std::string& name);
+        std::optional<std::string> hashOf(const std::string& base_block, const std::string& name);
+    };
+}
+```
+
+## FunctionDetails Structure
+
+Contains metadata about a function declaration.
+
+```cpp
+struct FunctionDetails {
+    std::string name;
+    FunctionSignature sig;
+    std::vector<Attribute> attributes;
+    bool is_private() const;
+};
+```
+
+### is_private()
+
+Determines if a function is private (lacks a `public` attribute).
+
+```cpp
+bool is_private() const;
+```
+
+<ResponseField name="return" type="bool">
+  true if the function is private, false if it has a public attribute
+</ResponseField>
+
+## Public Members
+
+### engine
+
+Pointer to the Engine instance that owns this module.
+
+```cpp
+Engine* engine;
+```
+
+### modules
+
+Map of nested module names to their ModuleBase instances.
+
+```cpp
+std::unordered_map<std::string, ModuleBase*> modules;
+```
+
+### module_hash
+
+Unique hash identifier for this module, used for symbol mangling and disambiguation.
+
+```cpp
+std::string module_hash;
+```
+
+### overloads
+
+Details about function overload resolution for this module.
+
+```cpp
+ModuleOverloadDetails overloads;
+```
+
+## Declaration Storage
+
+The module stores different kinds of declarations in separate maps. Each map is keyed by block hash (namespace identifier) and contains vectors of declarations to support overloading.
+
+### functions
+
+Stores non-generic function declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<FunctionDetails>> functions;
+```
+
+**Key:** Block hash
+**Value:** Vector of function details (supports overloading)
+
+### generic_fns
+
+Stores generic (template) function declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<GenericFunctionDeclaration>>> generic_fns;
+```
+
+### classes
+
+Stores non-generic class declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::pair<std::string, std::unique_ptr<ClassDeclaration>>>> classes;
+```
+
+Each class is stored as a pair containing its hash and declaration.
+
+### generic_classes
+
+Stores generic (template) class declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<GenericClassDeclaration>>> generic_classes;
+```
+
+### interfaces
+
+Stores non-generic interface declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<InterfaceDeclaration>>> interfaces;
+```
+
+### generic_interfaces
+
+Stores generic (template) interface declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<GenericInterfaceDeclaration>>> generic_interfaces;
+```
+
+### unions
+
+Stores non-generic union type declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<UnionDeclaration>>> unions;
+```
+
+### generic_unions
+
+Stores generic (template) union type declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<UnionDeclaration>>> generic_unions;
+```
+
+### enums
+
+Stores enum declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<EnumDeclaration>>> enums;
+```
+
+### aliases
+
+Stores type alias declarations (non-generic).
+
+```cpp
+std::unordered_map<std::string, std::unordered_map<std::string, Type>> aliases;
+```
+
+**Outer key:** Block hash
+**Inner key:** Alias name
+**Value:** The type being aliased
+
+### generic_aliases
+
+Stores generic (template) type alias declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<GenericAliasDeclaration>>> generic_aliases;
+```
+
+### constants
+
+Stores constant declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::tuple<Type, std::string, std::variant<Constant, ConstantDeclaration*>>>> constants;
+```
+
+Each constant is stored as a tuple containing:
+1. The constant's type
+2. The constant's name
+3. Either a computed Constant value or pointer to the declaration
+
+### macros
+
+Stores macro declarations.
+
+```cpp
+std::unordered_map<std::string, std::vector<std::unique_ptr<MacroDeclaration>>> macros;
+```
+
+## Symbol Lookup Methods
+
+All lookup methods search within a specific block (namespace) and support hierarchical lookup through parent blocks.
+
+### findFunction()
+
+Finds a non-generic function by name within a block.
+
+```cpp
+std::pair<std::string, FunctionDetails*> findFunction(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Function name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, FunctionDetails*>">
+  Pair containing the block hash where found and pointer to function details, or empty values if not found
+</ResponseField>
+
+### findGenericFn()
+
+Finds a generic function declaration by name.
+
+```cpp
+std::pair<std::string, GenericFunctionDeclaration*> findGenericFn(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Generic function name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, GenericFunctionDeclaration*>">
+  Pair containing the block hash where found and pointer to generic function declaration
+</ResponseField>
+
+### findClass()
+
+Finds a non-generic class declaration by name.
+
+```cpp
+std::pair<std::string, std::pair<std::string, std::unique_ptr<ClassDeclaration>>*> findClass(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Class name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, std::pair<std::string, std::unique_ptr<ClassDeclaration>>*>">
+  Pair containing the block hash and pointer to the class declaration pair
+</ResponseField>
+
+### findGenericClass()
+
+Finds a generic class declaration by name.
+
+```cpp
+std::pair<std::string, GenericClassDeclaration*> findGenericClass(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Generic class name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, GenericClassDeclaration*>">
+  Pair containing the block hash and pointer to generic class declaration
+</ResponseField>
+
+### findInterface()
+
+Finds a non-generic interface declaration by name.
+
+```cpp
+std::pair<std::string, InterfaceDeclaration*> findInterface(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Interface name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, InterfaceDeclaration*>">
+  Pair containing the block hash and pointer to interface declaration
+</ResponseField>
+
+### findGenericInterface()
+
+Finds a generic interface declaration by name.
+
+```cpp
+std::pair<std::string, GenericInterfaceDeclaration*> findGenericInterface(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Generic interface name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, GenericInterfaceDeclaration*>">
+  Pair containing the block hash and pointer to generic interface declaration
+</ResponseField>
+
+### findEnum()
+
+Finds an enum declaration by name.
+
+```cpp
+std::pair<std::string, EnumDeclaration*> findEnum(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Enum name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, EnumDeclaration*>">
+  Pair containing the block hash and pointer to enum declaration
+</ResponseField>
+
+### findUnion()
+
+Finds a union type declaration by name.
+
+```cpp
+std::pair<std::string, UnionDeclaration*> findUnion(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Union name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, UnionDeclaration*>">
+  Pair containing the block hash and pointer to union declaration
+</ResponseField>
+
+### findAlias()
+
+Finds a type alias by name.
+
+```cpp
+Type* findAlias(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Alias name to find
+</ParamField>
+
+<ResponseField name="return" type="Type*">
+  Pointer to the aliased type, or nullptr if not found
+</ResponseField>
+
+### findGenericAlias()
+
+Finds a generic type alias declaration by name.
+
+```cpp
+std::pair<std::string, GenericAliasDeclaration*> findGenericAlias(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Generic alias name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, GenericAliasDeclaration*>">
+  Pair containing the block hash and pointer to generic alias declaration
+</ResponseField>
+
+### findConst()
+
+Finds a constant declaration by name.
+
+```cpp
+std::pair<std::string, std::tuple<Type, std::string, std::variant<Constant, ConstantDeclaration*>>*> findConst(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Constant name to find
+</ParamField>
+
+<ResponseField name="return" type="std::pair<std::string, std::tuple<Type, std::string, std::variant<Constant, ConstantDeclaration*>>*>">
+  Pair containing the block hash and pointer to the constant tuple (type, name, value/declaration)
+</ResponseField>
+
+### findMacro()
+
+Finds a macro declaration by name.
+
+```cpp
+MacroDeclaration* findMacro(
+    const std::string& block,
+    const std::string& name
+);
+```
+
+<ParamField path="block" type="const std::string&">
+  Block hash to search within
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Macro name to find
+</ParamField>
+
+<ResponseField name="return" type="MacroDeclaration*">
+  Pointer to macro declaration, or nullptr if not found
+</ResponseField>
+
+### hashOf()
+
+Retrieves the hash identifier for a named symbol within a block.
+
+```cpp
+std::optional<std::string> hashOf(
+    const std::string& base_block,
+    const std::string& name
+);
+```
+
+<ParamField path="base_block" type="const std::string&">
+  Starting block hash for the search
+</ParamField>
+
+<ParamField path="name" type="const std::string&">
+  Symbol name to get hash for
+</ParamField>
+
+<ResponseField name="return" type="std::optional<std::string>">
+  Hash of the symbol if found, or std::nullopt if not found
+</ResponseField>
+
+## Usage Example
+
+```cpp
+// Create a module
+auto module = std::make_unique<LLVMModule>();
+module->engine = engine.get();
+module->module_hash = "main_module_hash";
+
+// Add a function to the module
+FunctionDetails func_details;
+func_details.name = "add";
+func_details.sig = /* ... */;
+func_details.attributes.push_back({"public"});
+
+module->functions["main_block"].push_back(std::move(func_details));
+
+// Look up the function
+auto [block_hash, func_ptr] = module->findFunction("main_block", "add");
+if (func_ptr) {
+    std::cout << "Found function: " << func_ptr->name << std::endl;
+    std::cout << "Is private: " << func_ptr->is_private() << std::endl;
+}
+
+// Add the module to the engine
+engine->modules["main"] = std::move(module);
+```
+
+## Block Hashes
+
+Block hashes are used throughout the module system to identify namespaces and scopes. They enable:
+- Symbol disambiguation in nested scopes
+- Privacy control (private vs public symbols)
+- Hierarchical symbol lookup
+- Module composition
+
+The hash system allows symbols with the same name to coexist in different blocks without conflicts.
+
+## See Also
+
+- [Engine](/api/engine) - Execution engine that manages modules
+- [Parser](/api/parser) - Parses declarations into the module
+- [Type Checker](/api/type-checker) - Type system used by declarations

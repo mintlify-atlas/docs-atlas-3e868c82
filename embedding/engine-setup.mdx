@@ -1,0 +1,349 @@
+---
+title: Engine Setup
+description: Initialize and configure the Yoyo engine for embedding
+---
+
+The `Engine` class is the central component of Yoyo's embedding API. It manages modules, compilation, and execution. This guide covers how to set up and use the engine in your C++20 application.
+
+## Choosing an Engine
+
+Yoyo provides two engine implementations, depending on your build configuration:
+
+<CodeGroup>
+```cpp LLVM Engine
+#include <yoyo/llvm/llvm_engine.h>
+
+Yoyo::LLVMEngine engine;
+```
+
+```cpp YVM Engine
+#include <yoyo/yvm/yvm_engine.h>
+
+Yoyo::YVMEngine engine;
+```
+</CodeGroup>
+
+<Note>
+  Both engines inherit from the base `Yoyo::Engine` class and share most of the same interface. Choose based on your [backend configuration](/embedding/backends).
+</Note>
+
+## Engine Class API
+
+The base `Engine` class provides the following interface:
+
+### Header Location
+
+```cpp
+#include <yoyo/engine.h>
+```
+
+### Class Definition
+
+```cpp include/yoyo/engine.h
+namespace Yoyo {
+    class YOYO_API Engine {
+    protected:
+        Runtime rt;
+    public:
+        Engine();
+        virtual ~Engine() = default;
+        Engine(Engine&&) noexcept = default;
+        
+        virtual void* createGlobalConstant(
+            const Type& type, 
+            const std::vector<Constant>& args, 
+            IRGenerator*
+        ) = 0;
+        
+        std::unordered_map<std::string, std::unique_ptr<ModuleBase>> modules;
+        std::unordered_map<std::string, std::pair<std::string, std::vector<std::unique_ptr<Statement>>>> sources;
+        
+        static std::string_view viewString(void* str);
+        void execute();
+        
+        template<class Rep, class Period>
+        void sleep(const std::chrono::duration<Rep, Period>& sleep_duration);
+        void sleep(uint64_t milliseconds);
+    };
+}
+```
+
+## Initialization
+
+Engines are created with default construction. No special initialization is required:
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>
+
+int main() {
+    Yoyo::LLVMEngine engine;
+    
+    // Engine is ready to use
+    return 0;
+}
+```
+
+<Note>
+  The engine cannot be copied, only moved. This ensures proper resource management.
+</Note>
+
+## Adding Modules
+
+There are two types of modules you can add to an engine:
+
+### Application Modules
+
+Application modules allow you to expose C++ functions and types to Yoyo:
+
+<Steps>
+  <Step title="Create the module">
+    ```cpp
+    auto* app = engine.addAppModule("myapp");
+    ```
+    
+    Returns a pointer to `LLVMAppModule*` or `YVMAppModule*` depending on your engine.
+  </Step>
+  
+  <Step title="Add C++ functions">
+    ```cpp
+    int32_t add(int32_t a, int32_t b) { return a + b; }
+    
+    auto result = app->addFunction(
+        "fn(a: i32, b: i32) -> i32",  // Yoyo signature
+        &add,                           // C++ function pointer
+        "add"                           // Name in Yoyo
+    );
+    
+    if (result != Yoyo::Result::Success) {
+        // Handle error
+    }
+    ```
+  </Step>
+</Steps>
+
+See the [Modules page](/embedding/modules) for more details on application modules.
+
+### Source Modules
+
+Source modules contain Yoyo code:
+
+```cpp
+engine.addModule("math", R"(
+    pub fn factorial(n: i32) -> i32 {
+        if n <= 1 {
+            return 1;
+        }
+        return n * factorial(n - 1);
+    }
+)");
+```
+
+<ParamField path="module_name" type="std::string" required>
+  The name of the module. Used for imports in Yoyo code.
+</ParamField>
+
+<ParamField path="source" type="std::string" required>
+  The Yoyo source code as a string.
+</ParamField>
+
+## Compilation and Execution
+
+After adding modules, follow this sequence:
+
+<Steps>
+  <Step title="Compile">
+    ```cpp
+    engine.compile();
+    ```
+    
+    Parses all source modules and generates IR/bytecode.
+    
+    <Warning>
+      For `YVMEngine`, this returns `bool`. Check the return value:
+      ```cpp
+      if (!engine.compile()) {
+          std::cerr << "Compilation failed\n";
+          return 1;
+      }
+      ```
+    </Warning>
+  </Step>
+  
+  <Step title="Prepare for execution">
+    ```cpp
+    engine.prepareForExecution();
+    ```
+    
+    Finalizes the compilation and prepares the runtime.
+  </Step>
+  
+  <Step title="Execute">
+    ```cpp
+    engine.execute();
+    ```
+    
+    Runs all fibers to completion. This blocks until execution finishes.
+  </Step>
+</Steps>
+
+### Complete Example
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>
+#include <iostream>
+
+int main() {
+    Yoyo::LLVMEngine engine;
+    
+    // Add source module
+    engine.addModule("main", R"(
+        pub fn main() {
+            print("Hello from Yoyo!");
+        }
+    )");
+    
+    // Compile
+    engine.compile();
+    
+    // Prepare
+    engine.prepareForExecution();
+    
+    // Execute
+    engine.execute();
+    
+    return 0;
+}
+```
+
+## Runtime Utilities
+
+The engine provides utilities for working with the coroutine-based runtime:
+
+### Sleep
+
+Sleep for a specified duration:
+
+```cpp
+// Using chrono duration
+engine.sleep(std::chrono::seconds(2));
+engine.sleep(std::chrono::milliseconds(500));
+
+// Using milliseconds directly
+engine.sleep(1000);  // 1 second
+```
+
+### String Utilities
+
+Convert Yoyo string pointers to C++ string views:
+
+```cpp
+void* yoyoString = /* from Yoyo runtime */;
+std::string_view str = Yoyo::Engine::viewString(yoyoString);
+std::cout << str << std::endl;
+```
+
+## Accessing Modules
+
+You can access added modules through the `modules` member:
+
+```cpp
+auto it = engine.modules.find("mymodule");
+if (it != engine.modules.end()) {
+    ModuleBase* module = it->second.get();
+    // Use module...
+}
+```
+
+## Backend-Specific Features
+
+Each engine implementation adds backend-specific functionality:
+
+<Tabs>
+  <Tab title="LLVM Engine">
+    ```cpp include/yoyo/llvm/llvm_engine.h
+    class LLVMEngine : public Engine {
+    public:
+        llvm::orc::ThreadSafeContext llvm_context;
+        std::unique_ptr<llvm::orc::LLJIT> jit;
+        
+        LLVMAppModule* addAppModule(const std::string& name);
+        void addModule(const std::string& module_name, std::string source);
+        void compile();
+        void prepareForExecution();
+        void addStaticLibrary(std::string_view path);
+        void addDynamicLibrary(std::string_view path);
+        virtual void* createGlobalConstant(const Type& type, const std::vector<Constant>& args, IRGenerator*) override;
+    };
+    ```
+    
+    **Unique features:**
+    - Access to LLVM context and JIT: `engine.llvm_context`, `engine.jit`
+    - Link static libraries: `engine.addStaticLibrary("/path/to/lib.a")`
+    - Load dynamic libraries: `engine.addDynamicLibrary("/path/to/lib.so")`
+  </Tab>
+  
+  <Tab title="YVM Engine">
+    ```cpp include/yoyo/yvm/yvm_engine.h
+    class YOYO_API YVMEngine : public Engine {
+    public:
+        YVMEngine();
+        ~YVMEngine() override;
+        
+        YVMAppModule* addAppModule(const std::string& name);
+        ModuleBase* addModule(const std::string& module_name, std::string source);
+        bool compile();
+        void prepareForExecution();
+        void addDynamicLibrary(std::string_view path);
+        Fiber createFiber(const FunctionTy& fn);
+        std::optional<FunctionTy> findFunction(ModuleBase* mod, const std::string& function_name);
+        void* createGlobalConstant(const Type& type, const std::vector<Constant>& args, IRGenerator*) override;
+        void* findNativeFunction(const std::string& name);
+        size_t getTypeSpawnIdx(const Type& tp);
+        
+        Yvm::VM vm;
+        StructTypeSelector struct_manager;
+        UniqueFISelector fi_manager;
+        UnionTypeSelector union_manager;
+        ArrayTypeSelector array_manager;
+        std::vector<NativeModule*> external_dlls;
+    };
+    ```
+    
+    **Unique features:**
+    - Direct VM access: `engine.vm`
+    - Find and create fibers manually: `engine.findFunction()`, `engine.createFiber()`
+    - Type management: `engine.struct_manager`, `engine.union_manager`
+    - Compilation returns `bool` for error checking
+  </Tab>
+</Tabs>
+
+## Error Handling
+
+<Warning>
+  The current engine API does not throw exceptions. Always check return values where applicable (especially for `YVMEngine::compile()`).
+</Warning>
+
+```cpp
+// YVM example with error checking
+Yoyo::YVMEngine engine;
+engine.addModule("main", source);
+
+if (!engine.compile()) {
+    std::cerr << "Compilation failed\n";
+    return 1;
+}
+
+engine.prepareForExecution();
+engine.execute();
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Module Integration" icon="puzzle-piece" href="/embedding/modules">
+    Learn how to create application modules and expose C++ APIs
+  </Card>
+  <Card title="Backend Configuration" icon="sliders" href="/embedding/backends">
+    Understand the differences between LLVM and YVM backends
+  </Card>
+</CardGroup>

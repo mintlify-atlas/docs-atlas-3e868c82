@@ -1,0 +1,735 @@
+---
+title: "YVM Backend API"
+description: "API reference for Yoyo's bytecode virtual machine backend"
+---
+
+## Overview
+
+The YVM (Yoyo Virtual Machine) backend provides bytecode interpretation for Yoyo programs. This backend compiles Yoyo code to a custom bytecode format executed by a virtual machine, offering fast compilation and portability.
+
+## When to Use the YVM Backend
+
+Use the YVM backend when:
+- You need fast compilation times for development/iteration
+- Portability across platforms is more important than raw performance
+- You're building scripting or embedded scenarios
+- You need easier debugging with bytecode inspection
+- Memory usage during compilation is constrained
+- You want to experiment with language features quickly
+
+**Trade-offs:**
+- Slower runtime performance compared to LLVM native code
+- Bytecode interpretation overhead
+- Platform portability (same bytecode runs everywhere)
+
+---
+
+## YVMEngine
+
+The main engine class for bytecode compilation and execution.
+
+### Class Definition
+
+```cpp
+class YVMEngine : public Engine {
+public:
+    YVMEngine();
+    ~YVMEngine() override;
+    
+    YVMAppModule* addAppModule(const std::string& name);
+    ModuleBase* addModule(const std::string& module_name, std::string source);
+    bool compile();
+    void prepareForExecution();
+    void addDynamicLibrary(std::string_view path);
+    
+    Fiber createFiber(const FunctionTy& fn);
+    std::optional<FunctionTy> findFunction(ModuleBase* mod, 
+                                           const std::string& function_name);
+    
+    void* createGlobalConstant(const Type& type, 
+                               const std::vector<Constant>& args, 
+                               IRGenerator*) override;
+    
+    void* findNativeFunction(const std::string& name);
+    size_t getTypeSpawnIdx(const Type& tp);
+    
+    Yvm::VM vm;
+    StructTypeSelector struct_manager;
+    UniqueFISelector fi_manager;
+    UnionTypeSelector union_manager;
+    ArrayTypeSelector array_manager;
+    std::vector<NativeModule*> external_dlls;
+};
+```
+
+### Constructor & Destructor
+
+<ParamField path="YVMEngine" type="constructor">
+  Initializes a new YVM engine with a fresh virtual machine instance.
+  
+  **Example:**
+  ```cpp
+  YVMEngine engine;
+  ```
+</ParamField>
+
+<ParamField path="~YVMEngine" type="destructor">
+  Cleans up VM resources and unloads dynamic libraries.
+</ParamField>
+
+### Core Members
+
+<ParamField path="vm" type="Yvm::VM">
+  The bytecode virtual machine instance that executes compiled Yoyo code.
+</ParamField>
+
+<ParamField path="struct_manager" type="StructTypeSelector">
+  Manages unique struct type representations and layout information.
+</ParamField>
+
+<ParamField path="fi_manager" type="UniqueFISelector">
+  Manages function interface types for the FFI (Foreign Function Interface) system.
+</ParamField>
+
+<ParamField path="union_manager" type="UnionTypeSelector">
+  Manages tagged union type representations.
+</ParamField>
+
+<ParamField path="array_manager" type="ArrayTypeSelector">
+  Manages array type descriptors and bounds information.
+</ParamField>
+
+<ParamField path="external_dlls" type="vector<NativeModule*>">
+  List of loaded native libraries for FFI calls.
+</ParamField>
+
+### Methods
+
+<ParamField path="addAppModule" type="YVMAppModule*">
+  Creates and registers a new application module for native interop.
+  
+  **Parameters:**
+  - `name` (string): Unique identifier for the module
+  
+  **Returns:** Pointer to the created `YVMAppModule` for adding native functions.
+  
+  **Example:**
+  ```cpp
+  YVMEngine engine;
+  auto* module = engine.addAppModule("my_ffi");
+  ```
+</ParamField>
+
+<ParamField path="addModule" type="ModuleBase*">
+  Parses and adds a Yoyo source module to the engine.
+  
+  **Parameters:**
+  - `module_name` (string): Name/path identifier for the module
+  - `source` (string): Yoyo source code content
+  
+  **Returns:** Pointer to the created module base, or `nullptr` on parse error.
+  
+  **Example:**
+  ```cpp
+  auto* mod = engine.addModule(
+      "main.yo", 
+      "main: () = { println(\"Hello YVM\"); }"
+  );
+  ```
+</ParamField>
+
+<ParamField path="compile" type="bool">
+  Compiles all added modules into YVM bytecode.
+  
+  **Returns:** `true` if compilation succeeded, `false` on error.
+  
+  **Note:** Must be called after all modules are added and before execution.
+</ParamField>
+
+<ParamField path="prepareForExecution" type="void">
+  Finalizes the bytecode and prepares the VM for execution. Links all modules and resolves function addresses.
+  
+  **Must be called after** `compile()` and before `execute()`.
+</ParamField>
+
+<ParamField path="addDynamicLibrary" type="void">
+  Loads a dynamic library (.so/.dylib/.dll) for FFI access.
+  
+  **Parameters:**
+  - `path` (string_view): File system path to the dynamic library
+  
+  **Example:**
+  ```cpp
+  engine.addDynamicLibrary("/usr/lib/libm.so");
+  ```
+</ParamField>
+
+<ParamField path="createFiber" type="Fiber">
+  Creates a new fiber (lightweight thread/coroutine) for executing a function.
+  
+  **Parameters:**
+  - `fn` (FunctionTy): Function descriptor to execute in the fiber
+  
+  **Returns:** Fiber handle for execution control.
+  
+  **Use case:** Concurrent execution and cooperative multitasking.
+</ParamField>
+
+<ParamField path="findFunction" type="optional<FunctionTy>">
+  Locates a compiled function by name.
+  
+  **Parameters:**
+  - `mod` (ModuleBase*): Module to search in
+  - `function_name` (string): Name of the function
+  
+  **Returns:** Function descriptor if found, `std::nullopt` otherwise.
+</ParamField>
+
+<ParamField path="findNativeFunction" type="void*">
+  Retrieves a function pointer from loaded dynamic libraries.
+  
+  **Parameters:**
+  - `name` (string): Symbol name to look up
+  
+  **Returns:** Function pointer, or `nullptr` if not found.
+</ParamField>
+
+<ParamField path="getTypeSpawnIdx" type="size_t">
+  Gets the spawn index for a type (used in concurrent type creation).
+  
+  **Parameters:**
+  - `tp` (Type): Yoyo type to query
+  
+  **Returns:** Type spawn index for VM type system.
+</ParamField>
+
+---
+
+## FunctionTy
+
+Descriptor for compiled YVM functions.
+
+### Structure Definition
+
+```cpp
+struct FunctionTy {
+    uint64_t* code;           // Bytecode instruction pointer
+    StructNativeTy* params;   // Parameter type descriptor
+    NativeTy* ret;            // Return type descriptor
+    bool should_sret;         // Uses struct-return convention
+};
+```
+
+<ParamField path="code" type="uint64_t*">
+  Pointer to the bytecode instruction stream for this function.
+</ParamField>
+
+<ParamField path="params" type="StructNativeTy*">
+  Native type descriptor for the function's parameter list (as a struct).
+</ParamField>
+
+<ParamField path="ret" type="NativeTy*">
+  Native type descriptor for the return value.
+</ParamField>
+
+<ParamField path="should_sret" type="bool">
+  If `true`, the function uses the SRET (struct return) calling convention where the caller provides a pointer to store the return value.
+</ParamField>
+
+---
+
+## YVMIRGenerator
+
+Generates YVM bytecode from Yoyo AST nodes.
+
+### Class Definition
+
+```cpp
+class YVMIRGenerator : public IRGenerator {
+public:
+    Yvm::Module* code;
+    std::unique_ptr<Yvm::Emitter> builder;
+    
+    struct VariableIndex {
+        enum IndexType { Alloc, Checkpoint };
+        size_t index;
+        IndexType type;
+    };
+    
+    struct VariableEntry {
+        VariableIndex idx;
+        Type type;
+    };
+    
+    std::vector<std::vector<std::pair<std::string, VariableEntry>>> variables;
+    
+    std::string break_to;
+    std::string continue_to;
+    
+    // Type conversion
+    NativeTy* toNativeType(const Type& type);
+    Yvm::Type toTypeEnum(const Type& type);
+    
+    // Code generation
+    void doFunctionInternal(std::string fn_name, 
+                           const FunctionSignature& sig, 
+                           FunctionDeclaration*);
+    
+    bool GenerateIR(std::string_view name, 
+                    std::vector<std::unique_ptr<Statement>> statements, 
+                    YVMModule* md, 
+                    Engine* eng);
+    
+    // Scope management
+    void pushScope();
+    void popScope();
+    void callDestructors(size_t depth = 0);
+    
+    std::optional<Type> getVariableType(const std::string& name, 
+                                        Expression*) override;
+};
+```
+
+### Key Members
+
+<ParamField path="code" type="Yvm::Module*">
+  Pointer to the YVM module being generated.
+</ParamField>
+
+<ParamField path="builder" type="unique_ptr<Yvm::Emitter>">
+  Bytecode emitter for writing instructions to the module.
+</ParamField>
+
+<ParamField path="variables" type="vector<vector<pair<...>>>">
+  Stack of variable scopes. Each scope maps variable names to:
+  - `VariableEntry` containing stack index and Yoyo type information
+  
+  **Note:** YVM uses stack-based allocation, so variables are tracked by stack indices rather than pointers.
+</ParamField>
+
+<ParamField path="break_to" type="string">
+  Label name for the current loop's break target.
+</ParamField>
+
+<ParamField path="continue_to" type="string">
+  Label name for the current loop's continue target.
+</ParamField>
+
+### VariableIndex
+
+<ParamField path="VariableIndex::index" type="size_t">
+  Stack slot index for the variable.
+</ParamField>
+
+<ParamField path="VariableIndex::type" type="IndexType">
+  Discriminates between:
+  - `Alloc`: Regular stack allocation
+  - `Checkpoint`: Stack checkpoint marker for cleanup
+</ParamField>
+
+### Type Conversion Methods
+
+<ParamField path="toNativeType" type="NativeTy*">
+  Converts a Yoyo type to a native FFI type descriptor.
+  
+  **Parameters:**
+  - `type` (Type): Yoyo type to convert
+  
+  **Returns:** FFI-compatible native type descriptor for calling C functions.
+</ParamField>
+
+<ParamField path="toTypeEnum" type="Yvm::Type">
+  Converts a Yoyo type to a YVM runtime type enum.
+  
+  **Parameters:**
+  - `type` (Type): Yoyo type to convert
+  
+  **Returns:** YVM type enumeration value.
+</ParamField>
+
+### Code Generation
+
+<ParamField path="doFunctionInternal" type="void">
+  Internal method for generating bytecode for a function.
+  
+  **Parameters:**
+  - `fn_name` (string): Mangled function name
+  - `sig` (FunctionSignature): Function signature
+  - `FunctionDeclaration*`: AST node for the function
+</ParamField>
+
+<ParamField path="GenerateIR" type="bool">
+  Main entry point for bytecode generation from AST statements.
+  
+  **Parameters:**
+  - `name` (string_view): Module or function name
+  - `statements` (vector&lt;unique_ptr&lt;Statement&gt;&gt;): AST nodes to compile
+  - `md` (YVMModule*): Target module for generated bytecode
+  - `eng` (Engine*): Parent engine instance
+  
+  **Returns:** `true` if generation succeeded, `false` on error.
+</ParamField>
+
+---
+
+## YVMModule
+
+Represents a compiled YVM bytecode module.
+
+### Class Definition
+
+```cpp
+struct YVMModule : public ModuleBase {
+    YVMModule() = default;
+    YVMModule(const YVMModule&) = delete;
+    YVMModule& operator=(const YVMModule& other) = delete;
+    
+    Yvm::Module code;
+    
+    std::unordered_map<ClassDeclaration*, StructNativeTy*> classes_types;
+    std::unordered_map<UnionDeclaration*, StructNativeTy*> union_types;
+    std::unordered_map<std::string, 
+                       std::pair<StructNativeTy*, 
+                                 std::unique_ptr<LambdaExpression>>> lambdas;
+    
+    std::pair<std::string, std::tuple<std::string, StructNativeTy*, 
+                                       ClassDeclaration*>> 
+        findClassWithType(const std::string& block, const std::string& name);
+    
+    std::pair<std::string, std::pair<UnionDeclaration*, StructNativeTy*>>
+        findUnionWithType(const std::string& block, const std::string& name);
+    
+    NativeTy* toNativeType(const Type& type, 
+                          const std::string& hash, 
+                          IRGenerator*, 
+                          const std::vector<Type>& disallowed_types);
+    
+    static void makeBuiltinModule(YVMEngine* eng);
+    std::string dumpIR();
+};
+```
+
+### Members
+
+<ParamField path="code" type="Yvm::Module">
+  The YVM bytecode module containing all compiled instructions and data.
+</ParamField>
+
+<ParamField path="classes_types" type="unordered_map">
+  Maps Yoyo class declarations to their native struct type descriptors.
+</ParamField>
+
+<ParamField path="union_types" type="unordered_map">
+  Maps Yoyo union declarations to their native struct type descriptors (tagged unions).
+</ParamField>
+
+<ParamField path="lambdas" type="unordered_map">
+  Maps lambda type names to their capture struct type and AST expression.
+</ParamField>
+
+### Methods
+
+<ParamField path="dumpIR" type="string">
+  Returns a human-readable disassembly of the bytecode for debugging.
+  
+  **Returns:** String containing bytecode listing.
+  
+  **Example:**
+  ```cpp
+  std::cout << module->dumpIR() << std::endl;
+  ```
+</ParamField>
+
+<ParamField path="makeBuiltinModule" type="static void">
+  Creates and registers built-in types and functions for the YVM backend.
+  
+  **Parameters:**
+  - `eng` (YVMEngine*): Engine to register built-ins into
+</ParamField>
+
+---
+
+## YVMAppModule
+
+Specialized module for native C/C++ FFI.
+
+### Class Definition
+
+```cpp
+class YVMAppModule : public YVMModule {
+public:
+    template<typename R, typename... Args>
+    Result addFunction(std::string sig_str, 
+                      R(*func)(Args...), 
+                      std::string name);
+    
+    Result addEnum(std::string enum_name, 
+                   std::unordered_map<std::string, int32_t> values);
+    
+    Result addClass(std::string class_name, 
+                    std::vector<ClassVariable> variables, 
+                    Ownership sh, 
+                    std::string block_hash);
+};
+```
+
+### Result Enum
+
+```cpp
+enum class Result {
+    Success,
+    NullParameter,
+    InvalidSignature,
+    ParameterCountMismatch,
+    ReturnTypeMismatch,
+    ParameterTypeMismatch,
+    DuplicateEnumValue,
+};
+```
+
+### Methods
+
+<ParamField path="addFunction" type="Result">
+  Registers a native C++ function callable from YVM bytecode.
+  
+  **Template Parameters:**
+  - `R`: Return type of the native function
+  - `Args...`: Parameter types of the native function
+  
+  **Parameters:**
+  - `sig_str` (string): Yoyo function signature string
+  - `func` (R(*)(Args...)): Function pointer to native implementation
+  - `name` (string): Name to expose in Yoyo code
+  
+  **Returns:** `Result` indicating success or specific error.
+  
+  **Example:**
+  ```cpp
+  double sqrt_wrapper(double x) { return std::sqrt(x); }
+  
+  auto result = module->addFunction(
+      "(x: f64) -> f64",
+      sqrt_wrapper,
+      "sqrt"
+  );
+  ```
+  
+  **Implementation Note:** The YVM uses libffi to dynamically call native functions, allowing runtime type marshaling.
+</ParamField>
+
+<ParamField path="addEnum" type="Result">
+  Registers a native enum type.
+  
+  **Parameters:**
+  - `enum_name` (string): Name for the enum in Yoyo
+  - `values` (unordered_map&lt;string, int32_t&gt;): Map of variant names to values
+  
+  **Returns:** `Result::Success` or `Result::DuplicateEnumValue`.
+</ParamField>
+
+<ParamField path="addClass" type="Result">
+  Registers a native class/struct type.
+  
+  **Parameters:**
+  - `class_name` (string): Name for the class in Yoyo
+  - `variables` (vector&lt;ClassVariable&gt;): Class member definitions
+  - `sh` (Ownership): Ownership semantics
+  - `block_hash` (string): Namespace hash for scoping
+  
+  **Returns:** `Result::Success` on successful registration.
+</ParamField>
+
+---
+
+## Native Type System
+
+The YVM uses libffi for C interoperability.
+
+### NativeTy
+
+```cpp
+using NativeTy = ffi_type;
+```
+
+Base type descriptor for FFI types. Wraps libffi's type system.
+
+### StructNativeTy
+
+```cpp
+struct StructNativeTy : public NativeTy {
+    std::vector<size_t> offsets;
+};
+```
+
+<ParamField path="offsets" type="vector<size_t>">
+  Byte offsets of each struct member for layout calculations.
+</ParamField>
+
+### ArrayNativeTy
+
+```cpp
+struct ArrayNativeTy : public NativeTy { 
+    size_t original_size; 
+};
+```
+
+<ParamField path="original_size" type="size_t">
+  Number of elements in the array.
+</ParamField>
+
+### NativeType Namespace
+
+Utility functions for working with native types:
+
+<ParamField path="NativeType::getI8/I16/I32/I64" type="NativeTy*">
+  Returns FFI type descriptors for signed integers.
+</ParamField>
+
+<ParamField path="NativeType::getU8/U16/U32/U64" type="NativeTy*">
+  Returns FFI type descriptors for unsigned integers.
+</ParamField>
+
+<ParamField path="NativeType::getF32/F64" type="NativeTy*">
+  Returns FFI type descriptors for floating-point types.
+</ParamField>
+
+<ParamField path="NativeType::getPtrTy" type="NativeTy*">
+  Returns FFI type descriptor for pointers.
+</ParamField>
+
+<ParamField path="NativeType::makeForStruct" type="StructNativeTy*">
+  Creates a struct type descriptor from member types.
+  
+  **Parameters:**
+  - `span<NativeTy* const>`: Array of member types
+  
+  **Returns:** Allocated struct type descriptor.
+</ParamField>
+
+<ParamField path="NativeType::get_size" type="uint32_t">
+  Gets the size in bytes of a native type.
+  
+  **Parameters:**
+  - `NativeTy* const`: Type to query
+  
+  **Returns:** Size in bytes.
+</ParamField>
+
+<ParamField path="NativeType::get_align" type="uint32_t">
+  Gets the alignment requirement of a native type.
+  
+  **Parameters:**
+  - `NativeTy* const`: Type to query
+  
+  **Returns:** Alignment in bytes.
+</ParamField>
+
+---
+
+## Complete Usage Example
+
+```cpp
+#include <yoyo/yvm/yvm_engine.h>
+#include <yoyo/yvm/app_module.h>
+#include <cmath>
+
+using namespace Yoyo;
+
+// Native functions
+int32_t add(int32_t a, int32_t b) { return a + b; }
+double power(double base, double exp) { return std::pow(base, exp); }
+
+int main() {
+    // Create YVM engine
+    YVMEngine engine;
+    
+    // Add native FFI module
+    auto* ffi = engine.addAppModule("math");
+    
+    ffi->addFunction("(a: i32, b: i32) -> i32", add, "add");
+    ffi->addFunction("(base: f64, exp: f64) -> f64", power, "pow");
+    
+    ffi->addEnum("Status", {
+        {"OK", 0},
+        {"Error", 1}
+    });
+    
+    // Add Yoyo source module
+    engine.addModule("main.yo", R"(
+        import math;
+        
+        main: () = {
+            sum := add(10, 20);
+            result := pow(2.0, 8.0);
+            println(sum);
+            println(result);
+        }
+    )");
+    
+    // Compile to bytecode
+    if (!engine.compile()) {
+        std::cerr << "Compilation failed" << std::endl;
+        return 1;
+    }
+    
+    // Execute
+    engine.prepareForExecution();
+    engine.execute();
+    
+    return 0;
+}
+```
+
+---
+
+## Bytecode Debugging
+
+```cpp
+// Dump bytecode for inspection
+auto* mod = engine.modules["main.yo"].get();
+auto* yvm_mod = static_cast<YVMModule*>(mod);
+std::cout << yvm_mod->dumpIR() << std::endl;
+```
+
+**Example Output:**
+```
+Function: main
+  0: ALLOC 16
+  1: PUSH_I32 10
+  2: PUSH_I32 20
+  3: CALL @add
+  4: STORE_LOCAL 0
+  5: PUSH_F64 2.0
+  6: PUSH_F64 8.0
+  7: CALL @pow
+  8: STORE_LOCAL 8
+  ...
+```
+
+---
+
+## Performance Characteristics
+
+### Compilation Speed
+- **YVM**: Very fast (no optimization passes)
+- **LLVM**: Slower (full optimization pipeline)
+
+### Runtime Performance
+- **YVM**: Interpreter overhead (~5-10x slower than native)
+- **LLVM**: Near-native performance
+
+### Memory Usage
+- **YVM**: Lower compilation memory footprint
+- **LLVM**: Higher due to IR and optimization metadata
+
+### Portability
+- **YVM**: Bytecode is platform-independent
+- **LLVM**: Generates platform-specific machine code
+
+---
+
+## See Also
+
+- [LLVM Backend API](/api/llvm-backend) - Native code generation backend
+- [Type Checker](/api/type-checker) - Type system reference
+- [Borrow Checker](/api/borrow-checker) - Memory safety analysis

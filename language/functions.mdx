@@ -1,0 +1,459 @@
+---
+title: Functions
+description: Learn how to define and use functions in Yoyo
+---
+
+## Overview
+
+Functions are first-class citizens in Yoyo. They can be assigned to variables, passed as arguments, and returned from other functions.
+
+## Function Declaration
+
+### Basic Syntax
+
+Functions are declared using the `fn` keyword:
+
+```yoyo
+function_name: fn = {
+    // function body
+};
+
+// With parameters and return type
+add: fn (a: i32, b: i32) -> i32 = {
+    return a + b;
+};
+```
+
+### Type Inference
+
+Return types can often be inferred:
+
+```yoyo
+multiply: fn (a: i32, b: i32) = {
+    return a * b; // Return type inferred as i32
+};
+```
+
+### Single Expression Functions
+
+For simple functions, you can omit the braces:
+
+```yoyo
+square: fn (x: i32) -> i32 = return x * x;
+
+double: fn (x: i32) = return x * 2;
+```
+
+## Parameters
+
+### Basic Parameters
+
+```yoyo
+greet: fn (name: str) = {
+    "Hello, ${name}!".print();
+};
+```
+
+### Reference Parameters
+
+Parameters can be passed by reference:
+
+```yoyo
+// Immutable reference
+read_value: fn (x: &i32) = {
+    // Can read but not modify x
+};
+
+// Mutable reference  
+increment: fn (x: &mut i32) = {
+    *x = *x + 1;
+};
+```
+
+### Method Parameters
+
+Methods receive `this` (immutable) or `&mut this` (mutable):
+
+```yoyo
+MyStruct: struct = {
+    value: i32,
+    
+    // Immutable method
+    get_value: fn (&this) -> i32 = return this.value;
+    
+    // Mutable method
+    set_value: fn (&mut this, new_val: i32) = {
+        this.value = new_val;
+    }
+}
+```
+
+<Note>
+The `&this` parameter borrows the struct immutably, while `&mut this` borrows it mutably.
+</Note>
+
+### InOut Parameters
+
+The `inout` keyword allows both reading and modifying:
+
+```yoyo
+access: fn (arr: inout [i32], idx: i32) -> &mut i32 = {
+    return &mut arr[idx];
+};
+```
+
+## Return Values
+
+### Explicit Returns
+
+```yoyo
+max: fn (a: i32, b: i32) -> i32 = {
+    if (a > b) return a;
+    return b;
+};
+```
+
+### Implicit Returns
+
+The last expression in a block is returned:
+
+```yoyo
+add: fn (a: i32, b: i32) -> i32 = a + b;
+
+complex: fn (x: i32) -> i32 = {
+    temp := x * 2;
+    temp + 10  // Implicitly returned
+};
+```
+
+### Void Returns
+
+Functions with no return value return `void`:
+
+```yoyo
+log_message: fn (msg: str) -> void = {
+    msg.print();
+};
+
+// Or simply
+log_message: fn (msg: str) = {
+    msg.print();
+};
+```
+
+### Returning References
+
+Functions can return references:
+
+```yoyo
+first_element: fn (arr: &[i32]) -> &i32 = {
+    return &arr[0];
+};
+
+get_mut: fn (arr: &mut [i32], idx: usize) -> &mut i32 = {
+    return &mut arr[idx];
+};
+```
+
+### Multiple Return Values
+
+Return tuples for multiple values:
+
+```yoyo
+divmod: fn (a: i32, b: i32) -> (i32, i32) = {
+    quotient := a / b;
+    remainder := a % b;
+    return (quotient, remainder);
+};
+
+// Usage
+result := divmod(10, 3);
+quot := result.0;
+rem := result.1;
+```
+
+## Generic Functions
+
+Functions can be generic over types:
+
+```yoyo
+// Generic function syntax: fn::<TypeParams>
+identity: fn::<T> (value: T) -> T = return value;
+
+// Multiple type parameters
+map: fn::<T, U> (value: T, mapper: fn(T) -> U) -> U = {
+    return mapper(value);
+};
+
+// Calling generic functions
+result := identity::<i32>(42);
+str_result := identity::<str>("hello");
+```
+
+### Generic Constraints
+
+Constrain generic types with interfaces:
+
+```yoyo
+sum: fn::<T: impl core::Iterator::<i32>> (iter: T) -> i32 = {
+    total: mut = 0;
+    for (value in iter) {
+        total = total + value;
+    }
+    return total;
+};
+```
+
+<Accordion title="Example: Generic LinkedList Iterator">
+```yoyo
+iter: fn::<T> (list: &LinkedList::<T>) -> LinkedListIterator::<T> = {
+    return LinkedListIterator::<T>{ .curr = list.first };
+};
+
+enumerate: fn::<T: impl core::Iterator::<O>, O> (iter: T) -> EnumerateIter::<T, O> = {
+    return EnumerateIter::<T, O>{ .actual_iter = iter, .idx = 0 };
+};
+
+chain: fn::<A: impl core::Iterator::<O>, B: impl core::Iterator::<O>, O> 
+    (first: A, snd: B) -> ChainIter::<A, B, O> = {
+    return ChainIter::<A, B, O>{
+        .first_iter = first, 
+        .second_iter = snd
+    };
+};
+```
+</Accordion>
+
+## Lambda Functions
+
+Lambdas are anonymous functions:
+
+### Basic Lambda Syntax
+
+```yoyo
+// Syntax: ||(params) { body }
+add_one := ||(x: i32) return x + 1;
+
+multiply := ||(a: i32, b: i32) {
+    return a * b;
+};
+```
+
+### Captures
+
+Lambdas can capture variables from their environment:
+
+```yoyo
+value := 10;
+
+// Capture by reference
+add_value := ||(x: i32) return x + value;
+
+// Stored lambda (captures are stored)
+print_list: stored = ||(list: &List) {
+    for (elem in list.iter()) {
+        std::println("${*elem}");
+    }
+};
+```
+
+<Note>
+The `stored` keyword indicates the lambda should store its captures, allowing it to outlive the current scope.
+</Note>
+
+## Method Definitions
+
+Methods are functions defined within structs or classes:
+
+```yoyo
+Vector2: struct = {
+    x: f32,
+    y: f32,
+    
+    // Static method (no this parameter)
+    zero: fn -> This = {
+        return This{ .x = 0.0, .y = 0.0 };
+    }
+    
+    // Instance method
+    magnitude: fn (&this) -> f32 = {
+        return sqrt(this.x * this.x + this.y * this.y);
+    }
+    
+    // Mutable method
+    normalize: fn (&mut this) = {
+        mag := this.magnitude();
+        this.x = this.x / mag;
+        this.y = this.y / mag;
+    }
+}
+```
+
+### Constructor Pattern
+
+Common pattern for constructors:
+
+```yoyo
+Game: struct = {
+    data: [Player; 9],
+    player: Player,
+    
+    new: fn -> Game = {
+        return Game{
+            .data = [Player::None; 9],
+            .player = Player::X
+        };
+    }
+}
+
+// Usage
+game := Game::new();
+```
+
+## Function Overloading
+
+Yoyo supports function overloading based on parameter types:
+
+```yoyo
+print: fn (value: i32) = { /* print integer */ };
+print: fn (value: str) = { /* print string */ };
+print: fn (value: f32) = { /* print float */ };
+
+// The correct overload is selected based on argument type
+print(42);      // Calls i32 version
+print("hello"); // Calls str version
+print(3.14);    // Calls f32 version
+```
+
+## Function Pointers
+
+Functions are first-class values:
+
+```yoyo
+// Store function in variable
+operation: fn(i32, i32) -> i32 = add;
+
+// Pass function as argument
+apply_twice: fn (f: fn(i32) -> i32, x: i32) -> i32 = {
+    return f(f(x));
+};
+
+// Return function
+get_operation: fn (is_add: bool) -> fn(i32, i32) -> i32 = {
+    if (is_add) return add;
+    return multiply;
+};
+```
+
+## Operator Functions
+
+Operator overloading uses special function syntax (see [Operators](/language/operators) for details):
+
+```yoyo
+operator: +(a: &Vector2, b: &Vector2) -> Vector2 = {
+    return Vector2{ .x = a.x + b.x, .y = a.y + b.y };
+};
+```
+
+## Access Control
+
+Functions can have access control via attributes:
+
+```yoyo
+// Public function
+#(public)
+public_api: fn = { };
+
+// Module-private function (default)
+private_helper: fn = { };
+```
+
+## Attributes
+
+Functions can have attributes:
+
+```yoyo
+#(public)
+#(inline)
+fast_function: fn = { };
+```
+
+## Recursion
+
+Functions can call themselves:
+
+```yoyo
+factorial: fn (n: i32) -> i32 = {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+};
+
+fibonacci: fn (n: i32) -> i32 = {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+```
+
+## Error Handling
+
+### Optional Returns
+
+Return `null` for errors:
+
+```yoyo
+divide: fn (a: i32, b: i32) -> i32? = {
+    if (b == 0) return null;
+    return a / b;
+};
+
+// Usage
+if |result| (divide(10, 2)) {
+    // result is i32 here
+} else {
+    // Division failed
+}
+```
+
+### Try Expression
+
+The `try` keyword can be used for error propagation:
+
+```yoyo
+risky_operation: fn -> i32! = {
+    value := try other_risky_call();
+    return value * 2;
+};
+```
+
+## Examples
+
+### Tic Tac Toe Helper Functions
+
+```yoyo
+Player: enum = { X, O, None }
+
+player_text: fn (p: &[Player; 9], alt: i32) -> str = {
+    if (*(*p)[alt] == Player::X) return "X";
+    else if (*(*p)[alt] == Player::O) return "O";
+    return "${alt}";
+};
+
+cycle: fn (p: Player) -> Player = {
+    if (p == Player::X) return Player::O;
+    else if (p == Player::O) return Player::X;
+    return p;
+};
+```
+
+### Iterator Combinators
+
+```yoyo
+enumerate: fn::<T: impl core::Iterator::<O>, O> (iter: T) -> EnumerateIter::<T, O> = {
+    return EnumerateIter::<T, O>{ .actual_iter = iter, .idx = 0 };
+};
+
+chain: fn::<A: impl core::Iterator::<O>, B: impl core::Iterator::<O>, O> 
+    (first: A, snd: B) -> ChainIter::<A, B, O> = {
+    return ChainIter::<A, B, O>{ .first_iter = first, .second_iter = snd };
+};
+```

@@ -1,0 +1,744 @@
+---
+title: Borrow Checker
+description: Memory safety analysis through ownership and lifetime tracking
+---
+
+## Overview
+
+The Borrow Checker ensures memory safety in Yoyo by tracking ownership, borrows, and lifetimes. It converts the typed AST into a Control Flow Graph (CFG) with domain constraints, then performs dataflow analysis to verify that all memory accesses are safe.
+
+The borrow checker uses an SSA-based intermediate representation where values flow through basic blocks, and domain variables track the lifetimes of borrowed references.
+
+## Core Components
+
+### BorrowCheckerEmitter
+
+Converts typed AST expressions and statements into the borrow checker's CFG representation.
+
+```cpp
+class BorrowCheckerEmitter {
+    IRGenerator* irgen;
+    TypeCheckerState* stt;
+    size_t counter = 0;
+    std::vector<std::vector<std::pair<std::string, std::string>>> variables;
+    BorrowCheckerFunction* function;
+    BasicBlock* current_block;
+};
+```
+
+<ParamField path="irgen" type="IRGenerator*">
+  Pointer to the IR generator for type information
+</ParamField>
+
+<ParamField path="stt" type="TypeCheckerState*">
+  Type checker state for resolved types
+</ParamField>
+
+<ParamField path="variables" type="std::vector<std::vector<std::pair<std::string, std::string>>>">
+  Stack of variable scopes, mapping source names to borrow checker IDs
+</ParamField>
+
+<ParamField path="function" type="BorrowCheckerFunction*">
+  The function being analyzed
+</ParamField>
+
+<ParamField path="current_block" type="BasicBlock*">
+  The current basic block being emitted
+</ParamField>
+
+### Methods
+
+#### Statement Emission
+
+```cpp
+void operator()(VariableDeclaration*);
+void operator()(WhileStatement*);
+void operator()(ForStatement*);
+void operator()(ReturnStatement*);
+void operator()(ExpressionStatement*);
+void operator()(WithStatement*);
+void operator()(BreakStatement*);
+void operator()(ContinueStatement*);
+```
+
+#### Expression Emission
+
+All expression emitters return a `Value` representing the computed result:
+
+```cpp
+Value operator()(ConditionalExtraction*);
+Value operator()(IfExpression*);
+Value operator()(BlockExpression*);
+Value operator()(IntegerLiteral*);
+Value operator()(BooleanLiteral*);
+Value operator()(TupleLiteral*);
+Value operator()(ArrayLiteral*);
+Value operator()(RealLiteral*);
+Value operator()(StringLiteral*);
+Value operator()(NameExpression*);
+Value operator()(GenericNameExpression*);
+Value operator()(PrefixOperation*);
+Value operator()(BinaryOperation*);
+Value operator()(GroupingExpression*);
+Value operator()(LogicalOperation*);
+Value operator()(PostfixOperation*);
+Value operator()(CallOperation*);
+Value operator()(SubscriptOperation*);
+Value operator()(LambdaExpression*);
+Value operator()(ScopeOperation*);
+Value operator()(ObjectLiteral*);
+Value operator()(NullLiteral*);
+Value operator()(AsExpression*);
+Value operator()(CharLiteral*);
+Value operator()(GCNewExpression*);
+Value operator()(MacroInvocation*);
+Value operator()(SpawnExpression*);
+Value operator()(TryExpression*);
+```
+
+---
+
+## Value Representation
+
+### Value
+
+Represents a value in the SSA form, potentially with field accesses.
+
+```cpp
+class Value {
+public:
+    std::string base_name;
+    std::vector<std::string> subpaths;
+};
+```
+
+<ParamField path="base_name" type="std::string">
+  The base variable name
+</ParamField>
+
+<ParamField path="subpaths" type="std::vector<std::string>">
+  Field access path (e.g., `obj.field1.field2`)
+</ParamField>
+
+### Methods
+
+```cpp
+static Value from(std::string&& name);
+Value& member(std::string&& member_name)&;
+Value member(std::string&& member_name)&&;
+static Value empty();
+bool is_empty();
+static Value constant();
+static Value function(std::string&& func_name);
+std::optional<std::string> function_name();
+std::string to_string() const;
+Domain as_domain();
+```
+
+<ResponseField name="from" type="Value">
+  Creates a value from a dotted path string
+</ResponseField>
+
+<ResponseField name="member" type="Value">
+  Adds a field access to the value
+</ResponseField>
+
+<ResponseField name="constant" type="Value">
+  Creates a special constant value (verified not to be borrowed)
+</ResponseField>
+
+<ResponseField name="function" type="Value">
+  Creates a function constant value
+</ResponseField>
+
+<ResponseField name="as_domain" type="Domain">
+  Converts the value path to a domain identifier
+</ResponseField>
+
+---
+
+## Domain Tracking
+
+### Domain
+
+Represents a lifetime/borrow region in the program.
+
+```cpp
+struct Domain {
+    std::string name;
+    std::string to_string() const { return name; }
+    bool is_var() const { return name.starts_with("'?"); }
+    bool is_null() const { return name == "null"; }
+    bool operator==(const Domain& other) const { return name == other.name; }
+};
+```
+
+Domains are used to track the lifetimes of references. Domain variables (starting with `'?`) are unified during analysis.
+
+---
+
+## CFG Structure
+
+### BasicBlock
+
+A basic block in the control flow graph.
+
+```cpp
+struct BasicBlock {
+    std::string debug_name;
+    std::vector<std::unique_ptr<Instruction>> instructions;
+    std::vector<BasicBlock*> preds;
+};
+```
+
+<ParamField path="debug_name" type="std::string">
+  Human-readable name for debugging
+</ParamField>
+
+<ParamField path="instructions" type="std::vector<std::unique_ptr<Instruction>>">
+  Linear sequence of instructions
+</ParamField>
+
+<ParamField path="preds" type="std::vector<BasicBlock*>">
+  Predecessor blocks in the CFG
+</ParamField>
+
+### Methods
+
+```cpp
+std::string to_string(bool include_dfa = false, DomainCheckerState* state = nullptr);
+void add_instruction(Instruction* inst, ASTNode* origin = nullptr);
+bool is_terminated() const;
+```
+
+---
+
+## Instructions
+
+All instructions inherit from the base `Instruction` class:
+
+```cpp
+class Instruction {
+public:
+    ASTNode* origin;
+    virtual ~Instruction() = default;
+    virtual bool is_terminator() { return false; }
+    virtual std::span<BasicBlock*> children() { return {}; }
+    virtual InstructionVariant to_variant() = 0;
+};
+```
+
+<Expandable title="Value Instructions">
+
+### NewPrimitiveInstruction
+```cpp
+class NewPrimitiveInstruction : public Instruction {
+public:
+    std::string into;
+    NewPrimitiveInstruction(std::string&& into);
+};
+```
+Creates a new primitive value (integers, floats, etc.).
+
+### NewArrayInstruction
+```cpp
+class NewArrayInstruction : public Instruction {
+public:
+    std::vector<Value> values;
+    std::string into;
+    NewArrayInstruction(std::vector<Value>&& values, std::string&& into);
+};
+```
+Creates a new array from a list of values.
+
+### NewAggregateInstruction
+```cpp
+class NewAggregateInstruction : public Instruction {
+public:
+    std::string into;
+    Type type_name;
+    std::unordered_map<std::string, Value> values;
+    NewAggregateInstruction(std::unordered_map<std::string, Value>&& values, 
+                           Type&& type_name, std::string&& into);
+};
+```
+Creates a new aggregate (struct/class) instance.
+
+### BorrowValueInstruction
+```cpp
+class BorrowValueInstruction : public Instruction {
+public:
+    Value val;
+    std::string into;
+    BorrowValueInstruction(Value&& val, std::string&& into);
+};
+```
+Creates an immutable borrow of a value.
+
+### RelocateValueInstruction
+```cpp
+class RelocateValueInstruction : public Instruction {
+public:
+    Value val;
+    std::string into;
+    RelocateValueInstruction(Value&& val, std::string&& into);
+};
+```
+Moves a value (transfers ownership).
+
+</Expandable>
+
+<Expandable title="Control Flow Instructions">
+
+### BrInstruction
+```cpp
+class BrInstruction : public Instruction {
+public:
+    BasicBlock* next;
+    BrInstruction(BasicBlock* next);
+    bool is_terminator() override { return true; }
+};
+```
+Unconditional branch to another basic block.
+
+### CondBrInstruction
+```cpp
+class CondBrInstruction : public Instruction {
+public:
+    std::vector<BasicBlock*> options;
+    Value br_on;
+    CondBrInstruction(std::vector<BasicBlock*>&& options, Value&& br_on);
+    bool is_terminator() override { return true; }
+};
+```
+Conditional branch based on a value.
+
+### RetInstruction
+```cpp
+class RetInstruction : public Instruction {
+public:
+    std::optional<Value> ret_val;
+    RetInstruction();
+    RetInstruction(Value&& val);
+    RetInstruction(std::optional<Value>&& val);
+    bool is_terminator() override { return true; }
+};
+```
+Returns from the function.
+
+</Expandable>
+
+<Expandable title="Memory Instructions">
+
+### AssignInstruction
+```cpp
+class AssignInstruction : public Instruction {
+public:
+    Value lhs;
+    Value rhs;
+    Domain lhs_domain;
+    std::vector<MayStoreOperation*> may_stores;
+    Domain rhs_domain;
+    AssignInstruction(Value&& lhs, Value&& rhs);
+};
+```
+Assigns a value to an lvalue (used for stores through references).
+
+### DerefOperation
+```cpp
+class DerefOperation : public Instruction {
+public:
+    Value reference;
+    Domain ref_domain;
+    std::string into;
+    DerefOperation(Value&& ref, std::string into);
+};
+```
+Dereferences a reference without loading (gets an lvalue).
+
+### DerefLoadOperation
+```cpp
+class DerefLoadOperation : public Instruction {
+public:
+    Value reference;
+    Domain ref_domain;
+    std::vector<MayLoadOperation*> may_loads;
+    std::vector<Instruction*> definer;
+    std::string into;
+    DerefLoadOperation(Value&& ref, std::string into);
+};
+```
+Dereferences and loads a value through a reference.
+
+### DropInstruction
+```cpp
+class DropInstruction : public Instruction {
+public:
+    Value val;
+    DropInstruction(Value&& val);
+};
+```
+Explicitly drops a value, running its destructor.
+
+</Expandable>
+
+<Expandable title="Domain Constraint Instructions">
+
+### DomainSubsetConstraint
+```cpp
+class DomainSubsetConstraint : public Instruction {
+public:
+    Domain super;
+    Domain sub;
+    std::string lvalue_domain;
+    DomainSubsetConstraint(Domain&& super, Domain&& sub);
+};
+```
+Constrains that `sub` must be a subset of `super` (outlives relationship).
+
+### DomainExtensionConstraint
+```cpp
+class DomainExtensionConstraint : public Instruction {
+public:
+    Domain super;
+    Domain sub;
+    Domain old_super;
+    DomainExtensionConstraint(Domain&& super, Domain&& sub);
+};
+```
+Used when extending a data structure (e.g., array push).
+
+### DomainDependenceEdgeConstraint
+```cpp
+class DomainDependenceEdgeConstraint : public Instruction {
+public:
+    Domain d1;
+    Domain d2;
+    DomainDependenceEdgeConstraint(Domain&& d1, Domain&& d2);
+};
+```
+Marks that two domains are related through pointer relationships.
+
+</Expandable>
+
+<Expandable title="SSA Instructions">
+
+### PhiInstruction
+```cpp
+class PhiInstruction : public Instruction {
+public:
+    std::vector<Value> args;
+    std::string into;
+    PhiInstruction(std::vector<Value>&& args, std::string&& into);
+};
+```
+Standard SSA phi node for merging values from multiple predecessors.
+
+### DomainPhiInstruction
+```cpp
+class DomainPhiInstruction : public Instruction {
+public:
+    std::vector<Domain> args;
+    std::string into;
+    DomainPhiInstruction(std::vector<Domain>&& args, std::string&& into);
+};
+```
+Phi node for domain variables.
+
+</Expandable>
+
+<Expandable title="Analysis Helper Instructions">
+
+### MayStoreOperation
+```cpp
+class MayStoreOperation : public Instruction {
+public:
+    Instruction* origin;
+    Domain old_domain;
+    Domain new_domain;
+    MayStoreOperation(Instruction* origin, Domain&& old_domain, Domain&& new_domain);
+};
+```
+Tracks potential stores through references for alias analysis.
+
+### MayLoadOperation
+```cpp
+class MayLoadOperation : public Instruction {
+public:
+    Instruction* origin;
+    Domain domain;
+    MayLoadOperation(Instruction* origin, Domain&& domain);
+};
+```
+Tracks potential loads through references for alias analysis.
+
+</Expandable>
+
+---
+
+## Type System
+
+### BorrowCheckerType
+
+Represents types in the borrow checker with domain annotations.
+
+```cpp
+struct BorrowCheckerType {
+    enum TypeType {
+        Primitive,
+        Aggregate,
+        Union,
+        UniquePtr,
+        Array,
+        RefPtr,
+        LValue,
+        Named
+    };
+    
+    std::variant<
+        PrimitiveDetails,
+        AggregateDetails,
+        UnionDetails,
+        UniquePtrDetails,
+        ArrayDetails,
+        RefPtrDetails,
+        LValueDetails,
+        NamedTypeDetails
+    > details;
+    
+    std::vector<std::pair<Domain, bool>> domains;
+};
+```
+
+<ParamField path="details" type="variant">
+  Type-specific details for the borrow checker representation
+</ParamField>
+
+<ParamField path="domains" type="std::vector<std::pair<Domain, bool>>">
+  Domain annotations where the bool indicates if the domain is bidirectional
+</ParamField>
+
+### Type Categories
+
+<Expandable title="Aggregate Types">
+
+```cpp
+struct AggregateDetails {
+    FieldMap fields;
+};
+```
+Product types (structs) with named fields.
+
+</Expandable>
+
+<Expandable title="Union Types">
+
+```cpp
+struct UnionDetails {
+    FieldMap fields;
+};
+```
+Sum types with variant fields (unstable under assignment).
+
+</Expandable>
+
+<Expandable title="Pointer Types">
+
+```cpp
+struct UniquePtrDetails {
+    std::unique_ptr<BorrowCheckerType> subtype;
+};
+
+struct RefPtrDetails {
+    std::unique_ptr<BorrowCheckerType> subtype;
+};
+```
+Owning and non-owning pointer types.
+
+</Expandable>
+
+<Expandable title="LValue Types">
+
+```cpp
+struct LValueDetails {
+    std::unique_ptr<BorrowCheckerType> subtype;
+    std::string origin;
+    std::vector<std::string> subpath;
+};
+```
+Represents assignable memory locations with field access tracking.
+
+</Expandable>
+
+### Methods
+
+```cpp
+void normalize();
+BorrowCheckerType borrowed(DomainCheckerState*) const;
+BorrowCheckerType cloned(DomainCheckerState*) const;
+BorrowCheckerType moved(DomainCheckerState*) const;
+BorrowCheckerType deref() const;
+static BorrowCheckerType new_primitive();
+static BorrowCheckerType new_aggregate_from(Type&&);
+static BorrowCheckerType new_array_of(BorrowCheckerType&&);
+std::string to_string() const;
+```
+
+<ResponseField name="normalize">
+  Brings all nested domains to the top level
+</ResponseField>
+
+<ResponseField name="borrowed" type="BorrowCheckerType">
+  Creates a borrowed version of the type in a new domain
+</ResponseField>
+
+<ResponseField name="cloned" type="BorrowCheckerType">
+  Creates a deep copy with fresh domains
+</ResponseField>
+
+<ResponseField name="moved" type="BorrowCheckerType">
+  Duplicates the type with the same domains
+</ResponseField>
+
+<ResponseField name="deref" type="BorrowCheckerType">
+  Dereferences a reference type
+</ResponseField>
+
+---
+
+## Analysis Pipeline
+
+### DomainCheckerState
+
+Manages the entire borrow checking analysis.
+
+```cpp
+struct DomainCheckerState {
+    size_t last_id = 0;
+    ValueTypeMapping type_mapping;
+    DominatorList dominators;
+    BorrowCheckerFunction* func;
+    BasicBlock* entry_block;
+    IRGenerator* irgen;
+    PointsToGraph ptgraph;
+    DefUseGraph def_use_graph;
+    TopLevelPointsToGraph final_ptg;
+    ValueTypeMapping named_value_type_cache;
+    std::unordered_map<Instruction*, std::set<std::string>> dfa_in;
+    std::unordered_map<Instruction*, std::set<std::string>> dfa_out;
+    std::unordered_map<std::string, KillReason> domain_kill_reason;
+};
+```
+
+### Analysis Methods
+
+```cpp
+std::unique_ptr<BorrowCheckerFunction> check_function(
+    FunctionDeclaration* decl, 
+    IRGenerator* irgen, 
+    const FunctionSignature& sig, 
+    TypeCheckerState* stt);
+void build_dominators();
+void calc_block_preds();
+void transform_to_ssa();
+void clear_dependencies();
+void build_dug();
+void do_primary_analysis();
+void do_domain_validity_analysis(BasicBlock* entry);
+```
+
+<ResponseField name="check_function">
+  Main entry point that orchestrates the entire borrow checking pipeline
+</ResponseField>
+
+<ResponseField name="build_dominators">
+  Computes dominator tree for the CFG
+</ResponseField>
+
+<ResponseField name="calc_block_preds">
+  Assigns predecessor lists to all basic blocks
+</ResponseField>
+
+<ResponseField name="transform_to_ssa">
+  Converts domain tracking to SSA form with phi nodes
+</ResponseField>
+
+<ResponseField name="clear_dependencies">
+  Removes domain dependence edges and adds assignments
+</ResponseField>
+
+<ResponseField name="build_dug">
+  Builds the def-use graph for analysis
+</ResponseField>
+
+<ResponseField name="do_primary_analysis">
+  Performs points-to analysis
+</ResponseField>
+
+<ResponseField name="do_domain_validity_analysis">
+  Verifies that all domain uses are valid (no use-after-kill)
+</ResponseField>
+
+### Helper Methods
+
+```cpp
+Domain new_domain_var();
+void register_value_base_type(const std::string& value, BorrowCheckerType&&);
+BorrowCheckerType type_to_borrow_checker_type(const Type& type);
+const BorrowCheckerType& get_value_type(const Value& value);
+const BorrowCheckerType& field_lookup(
+    const BorrowCheckerType& type, 
+    const std::string& base, 
+    std::span<const std::string> fields);
+```
+
+---
+
+## Analysis Algorithms
+
+### Points-To Analysis
+
+The borrow checker uses inclusion-based points-to analysis to determine which memory locations each reference might point to.
+
+```cpp
+struct PointsToGraph {
+    std::unordered_map<std::string, std::unordered_set<std::string>> pointee_pairs;
+    
+    bool add_edge(std::string domain, std::string pointee);
+    std::unordered_set<std::string>& get_pointees_of(std::string domain);
+    std::string to_graphviz();
+};
+```
+
+### Domain Validity Analysis
+
+Tracks which domains are "alive" at each program point using dataflow analysis:
+
+```cpp
+struct KillReason {
+    enum InstructionSource { Assign, Drop };
+    InstructionSource source;
+    std::string affected_value;
+    std::string bad_pointee;
+    ASTNode* killing_instruction;
+    std::optional<std::string> lvalue_source;
+};
+```
+
+When a value is dropped or reassigned, all domains it points to are "killed". The analysis ensures no reference is used after its domain has been killed.
+
+---
+
+## Usage in Pipeline
+
+The borrow checker runs after type checking:
+
+1. **Type Check** - Resolves all types
+2. **Emit CFG** - Convert AST to borrow checker IR
+3. **Insert Domains** - Annotate with lifetime variables
+4. **SSA Transform** - Convert to SSA form
+5. **Points-To Analysis** - Determine aliasing relationships
+6. **Validity Analysis** - Ensure no use-after-free
+7. **IR Generation** - Proceed to code generation
+
+This ensures memory safety without garbage collection or manual memory management.

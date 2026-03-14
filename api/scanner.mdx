@@ -1,0 +1,285 @@
+---
+title: "Scanner"
+description: "Tokenizes Yoyo source code into a stream of tokens"
+---
+
+## Overview
+
+The `Scanner` class (also known as a lexer or tokenizer) converts raw Yoyo source code into a stream of tokens. It handles keywords, identifiers, literals, operators, comments, and whitespace.
+
+## Class Definition
+
+```cpp
+namespace Yoyo {
+    class Scanner {
+    public:
+        explicit Scanner(std::string_view source);
+        
+        std::optional<Token> NextToken();
+        std::optional<Token> NextTokenInternal();
+        size_t GetLine();
+        size_t GetOffset() const;
+        SourceLocation GetSourceLocation() const;
+    };
+}
+```
+
+## Constructor
+
+### Scanner()
+
+Constructs a scanner for the given source code.
+
+```cpp
+explicit Scanner(std::string_view source);
+```
+
+<ParamField path="source" type="std::string_view">
+  View of the source code to tokenize. The underlying string must remain valid for the lifetime of the Scanner.
+</ParamField>
+
+## Public Methods
+
+### NextToken()
+
+Returns the next token from the source code, skipping whitespace and comments.
+
+```cpp
+std::optional<Token> NextToken();
+```
+
+<ResponseField name="return" type="std::optional<Token>">
+  The next token, or std::nullopt if at end of file
+</ResponseField>
+
+This is the main method used by the parser. It automatically:
+- Skips whitespace (spaces, tabs)
+- Handles line comments (`//`)
+- Handles block comments (`/* */`)
+- Returns meaningful tokens only
+
+### NextTokenInternal()
+
+Returns the next raw token including whitespace and newlines.
+
+```cpp
+std::optional<Token> NextTokenInternal();
+```
+
+<ResponseField name="return" type="std::optional<Token>">
+  The next raw token, or std::nullopt if at end of file
+</ResponseField>
+
+This internal method returns all tokens including newlines, which is used by `NextToken()` to determine when to skip semicolons based on line breaks.
+
+### GetLine()
+
+Returns the current line number in the source code.
+
+```cpp
+size_t GetLine();
+```
+
+<ResponseField name="return" type="size_t">
+  Current line number (1-based)
+</ResponseField>
+
+### GetOffset()
+
+Returns the current character offset in the source code.
+
+```cpp
+size_t GetOffset() const;
+```
+
+<ResponseField name="return" type="size_t">
+  Current character position (0-based)
+</ResponseField>
+
+### GetSourceLocation()
+
+Returns the current source location (line and column).
+
+```cpp
+SourceLocation GetSourceLocation() const;
+```
+
+<ResponseField name="return" type="SourceLocation">
+  Structure containing current line and column numbers
+</ResponseField>
+
+The returned `SourceLocation` has the following structure:
+```cpp
+struct SourceLocation {
+    size_t line;    // 1-based line number
+    size_t column;  // 1-based column number
+};
+```
+
+## Token Types
+
+The Scanner recognizes the following token types:
+
+### Keywords
+- Control flow: `if`, `else`, `while`, `for`, `return`, `break`, `continue`
+- Declarations: `class`, `struct`, `enum`, `union`, `interface`, `fn`, `alias`, `macro`, `const`
+- Modifiers: `pub`, `static`, `mut`, `view`
+- Module system: `module`, `using`, `impl`
+- Memory: `gcnew`
+- Special: `this`, `as`, `in`, `inout`, `with`, `operator`, `spawn`, `try`, `called`
+
+### Literals
+- `IntegerLiteral` - Integer numbers (e.g., `42`, `0xFF`)
+- `RealLiteral` - Floating-point numbers (e.g., `3.14`)
+- `StringLiteral` - String literals (e.g., `"hello"`)
+- `CharLiteral` - Character literals (e.g., `'a'`)
+- `True`, `False` - Boolean literals
+- `Null` - Null literal
+
+### Operators
+
+**Arithmetic:**
+- `Plus` (+), `Minus` (-), `Star` (*), `Slash` (/), `Percent` (%)
+
+**Comparison:**
+- `DoubleEqual` (==), `BangEqual` (!=)
+- `Less` (&lt;), `Greater` (&gt;), `LessEqual` (&lt;=), `GreaterEqual` (&gt;=)
+- `Spaceship` (&lt;=&gt;)
+
+**Logical:**
+- `DoubleAmpersand` (&&), `DoublePipe` (||), `Bang` (!)
+
+**Bitwise:**
+- `Ampersand` (&amp;), `Pipe` (|), `Caret` (^)
+- `DoubleLess` (&lt;&lt;), `DoubleGreater` (&gt;&gt;)
+
+**Assignment:**
+- `Equal` (=)
+- `PlusEqual` (+=), `MinusEqual` (-=), `StarEqual` (*=), `SlashEqual` (/=), `PercentEqual` (%=)
+- `AmpersandEqual` (&amp;=), `PipeEqual` (|=), `CaretEqual` (^=)
+
+### Delimiters
+- `LParen` ( `(` ), `RParen` ( `)` )
+- `LCurly` ( `{` ), `RCurly` ( `}` )
+- `LSquare` ( `[` ), `RSquare` ( `]` )
+- `Comma` (,), `SemiColon` (;)
+- `Dot` (.), `DoubleDot` (..), `DoubleDotEqual` (..=)
+- `Colon` (:), `DoubleColon` (::)
+- `Arrow` (->), `Question` (?)
+- `Tilde` (~), `BackSlash` (\)
+
+### Special
+- `Identifier` - Variable/function names
+- `SPIdentifier` - Special identifiers (context-specific)
+- `AttrOpen` - Attribute opening `#(`
+- `TemplateOpen` - Template opening `::<`
+- `SlashBrace` - Escape sequence `\}`
+- `Underscore` - Placeholder `_`
+- `SquarePair` - Indexing operator `[]`
+- `SquarePairMut` - Mutable indexing `mut []`
+- `NewLine` - Line break (internal use)
+- `Eof` - End of file
+- `Invalid` - Invalid token
+
+## Usage Example
+
+```cpp
+#include <yoyo/scanner.h>
+#include <iostream>
+
+std::string source = R"(
+    fn greet(name: str) {
+        println("Hello, " + name);
+    }
+)";
+
+Yoyo::Scanner scanner(source);
+
+while (auto token = scanner.NextToken()) {
+    if (token->type == Yoyo::TokenType::Eof) {
+        break;
+    }
+    
+    std::cout << "Token: " << token->text 
+              << " at line " << token->loc.line 
+              << ", col " << token->loc.column 
+              << std::endl;
+}
+```
+
+**Output:**
+```
+Token: fn at line 2, col 5
+Token: greet at line 2, col 11
+Token: ( at line 2, col 12
+Token: name at line 2, col 16
+Token: : at line 2, col 17
+Token: str at line 2, col 21
+Token: ) at line 2, col 22
+Token: { at line 2, col 24
+Token: println at line 3, col 16
+...
+```
+
+## Comment Handling
+
+The Scanner automatically handles two types of comments:
+
+### Line Comments
+
+Line comments start with `//` and continue to the end of the line.
+
+```yoyo
+// This is a line comment
+fn main() {  // This is also a comment
+    // ...
+}
+```
+
+### Block Comments
+
+Block comments start with `/*` and end with `*/`. They can span multiple lines.
+
+```yoyo
+/*
+ * This is a block comment
+ * that spans multiple lines
+ */
+fn main() { /* inline block comment */ }
+```
+
+## Token Structure
+
+Each token returned by the Scanner has the following structure:
+
+```cpp
+struct Token {
+    TokenType type;           // Type of the token
+    SourceLocation loc;       // Start location in source
+    std::string_view text;    // Text content of the token
+    
+    bool is_assignment() const;              // Checks if token is an assignment operator
+    bool can_be_overloaded() const;          // Checks if operator can be overloaded
+    bool can_be_overloaded_binary_only() const; // Checks if only binary overload allowed
+};
+```
+
+## Error Handling
+
+The Scanner handles errors gracefully:
+- Invalid tokens return `TokenType::Invalid`
+- Unterminated string literals return `std::nullopt`
+- Unterminated character literals return `std::nullopt`
+- End of file returns a token with `TokenType::Eof`
+
+## Performance Considerations
+
+- The Scanner uses `std::string_view` for zero-copy tokenization
+- No dynamic allocations are made for token text (uses views into the original source)
+- Keywords are looked up using an unordered map for O(1) performance
+- Single-pass scanning with minimal backtracking
+
+## See Also
+
+- [Parser](/api/parser) - Parses tokens into an AST
+- [Expression](/api/expression) - Expression AST nodes

@@ -1,0 +1,429 @@
+---
+title: Structs & Enums
+description: Learn about Yoyo's composite data types - structs, classes, enums, and unions
+---
+
+## Structs
+
+### Basic Struct Declaration
+
+Structs group related data together:
+
+```yoyo
+Vector2: struct = {
+    x: f32,
+    y: f32
+}
+```
+
+### Struct Instantiation
+
+Create struct instances using designated initializer syntax:
+
+```yoyo
+pos := Vector2{ .x = 10.0, .y = 20.0 };
+
+// Fields can be in any order
+vel := Vector2{ .y = 5.0, .x = 3.0 };
+```
+
+### Accessing Fields
+
+```yoyo
+point := Vector2{ .x = 1.0, .y = 2.0 };
+the_x := point.x;
+the_y := point.y;
+```
+
+### Methods in Structs
+
+Structs can contain methods:
+
+```yoyo
+Vector2: struct = {
+    x: f32,
+    y: f32,
+    
+    // Constructor
+    new: fn (x: f32, y: f32) -> This = {
+        return This{ .x = x, .y = y };
+    }
+    
+    // Instance method
+    length: fn (&this) -> f32 = {
+        return sqrt(this.x * this.x + this.y * this.y);
+    }
+    
+    // Mutable method
+    scale: fn (&mut this, factor: f32) = {
+        this.x = this.x * factor;
+        this.y = this.y * factor;
+    }
+}
+
+// Usage
+v := Vector2::new(3.0, 4.0);
+len := v.length();
+v.scale(2.0);
+```
+
+<Note>
+Use `This` to refer to the struct type being defined. It's especially useful in constructors.
+</Note>
+
+### Generic Structs
+
+Structs can be generic over types:
+
+```yoyo
+Node: struct::<T> = {
+    data: T,
+    next: (^Node::<T>)?
+}
+
+// Usage
+int_node := Node::<i32>{ .data = 42, .next = null };
+str_node := Node::<str>{ .data = "hello", .next = null };
+```
+
+<Accordion title="Example: Generic LinkedList">
+```yoyo
+Node: struct::<T> = {
+    data: T,
+    next: (^Node::<T>)?
+}
+
+LinkedList: struct::<T> = {
+    first: (^Node::<T>)?,
+    
+    new: fn -> This = return This{ .first = null };
+    
+    append: fn (&mut this, value: T) = {
+        if |val| (this.first) {
+            last: mut = val;
+            should_loop: mut = true;
+            while (should_loop) {
+                if |nxt| (last.next) last = nxt;
+                else should_loop = false;
+            }
+            last.next = gcnew Node::<T>{ .data = value, .next = null };
+        } else {
+            this.first = gcnew Node::<T>{ .data = value, .next = null };
+        }
+    }
+}
+```
+</Accordion>
+
+### Ownership Modifiers
+
+Structs can specify ownership semantics:
+
+```yoyo
+// Owning struct (default)
+OwningStruct: struct = { };
+
+// Non-owning struct (reference-only)
+NonOwningStruct: struct:& = { };
+
+// Mutable non-owning struct
+MutNonOwningStruct: struct:&mut = { };
+```
+
+<Accordion title="Example: Non-owning View Struct">
+```yoyo
+NonOwning: struct:& = {
+    view: [i32:&mut],
+    
+    new: fn (arr: &mut [i32]) -> This = {
+        return This{ .view = arr.all() };
+    }
+}
+
+// Usage
+arr: mut = [10, 20, 30];
+with a as NonOwning::new(&mut arr) {
+    // Use a here
+}
+```
+</Accordion>
+
+## Classes
+
+Classes are similar to structs but can implement interfaces:
+
+```yoyo
+List: class::<T> = {
+    first: (^mut Node::<T>)?,
+    
+    iter: fn (&this) -> ListIter::<T> = {
+        return ListIter::<T>::new(this.first.value());
+    }
+    
+    from_array: fn (arr: mut [T]) -> This = {
+        list: This = This{ .first = null };
+        // ... implementation
+        return list;
+    }
+}
+```
+
+### Implementing Interfaces
+
+```yoyo
+ListIter: struct::<T> impl Iterator = {
+    node: ^Node::<T>,
+    
+    new: fn (node: ^Node::<T>) -> This = return This{ node };
+    
+    Iterator {
+        ElementTy: alias = &T;
+        
+        is_end: fn (&this) -> bool = {
+            return this.node.next.has_value();
+        }
+        
+        advance: fn (&mut this) = {
+            if (this.node.next) {
+                this.node = *this.node.next.value();
+            }
+        }
+        
+        value: fn -> ElementTy = return &node.value;
+    }
+}
+```
+
+## Enums
+
+Enums define a type with a fixed set of named values:
+
+### Basic Enums
+
+```yoyo
+Player: enum = { X, O, None }
+
+Direction: enum = { North, South, East, West }
+```
+
+### Using Enum Values
+
+```yoyo
+current_player := Player::X;
+direction := Direction::North;
+
+// Pattern matching
+if (current_player == Player::X) {
+    // Player is X
+}
+```
+
+### Enums with Explicit Values
+
+```yoyo
+HttpStatus: enum = {
+    Ok = 200,
+    NotFound = 404,
+    InternalError = 500
+}
+```
+
+### Enums with Methods
+
+Enums can have associated methods:
+
+```yoyo
+Player: enum = { X, O, None }
+
+cycle: fn (p: Player) -> Player = {
+    if (p == Player::X) return Player::O;
+    else if (p == Player::O) return Player::X;
+    return p;
+};
+
+// Usage
+current := Player::X;
+next := current.cycle();
+```
+
+### Enum Flags
+
+For bit flag enums:
+
+```yoyo
+Permissions: enum_flag = {
+    Read = 1,
+    Write = 2,
+    Execute = 4
+}
+
+// Can be combined with bitwise operators
+perms := Permissions::Read | Permissions::Write;
+```
+
+## Unions
+
+Unions are tagged unions (similar to Rust enums):
+
+### Basic Union
+
+```yoyo
+Message: union = {
+    Quit: void,
+    Start,  // Implicit void
+    Move: i32 & i32,
+    Write: str,
+    ChangeColor: i32 & i32 & i32
+}
+```
+
+<Note>
+Union variants can have associated data using the `&` syntax for tuple-like data.
+</Note>
+
+### Using Unions
+
+```yoyo
+msg: mut Message = Message::Quit;
+
+// Check variant type
+if (msg is Message::Quit) {
+    // msg is Quit variant
+}
+
+// Extract variant data
+if |move_data| (msg as Message::Move) {
+    // move_data contains the i32 & i32 values
+}
+```
+
+### Unions with Methods
+
+```yoyo
+Message: union = {
+    Quit: void,
+    Write: str,
+    
+    // Method in union
+    broadcast: fn (this, b: Broadcaster) -> void! = {
+        return b.perform_broadcast(this);
+    }
+}
+```
+
+## Complex Example: Tic Tac Toe
+
+```yoyo
+Player: enum = { X, O, None }
+
+Game: struct = {
+    data: [Player; 9],
+    player: Player,
+    
+    new: fn -> Game = {
+        return Game{
+            .data = [
+                Player::None, Player::None, Player::None,
+                Player::None, Player::None, Player::None,
+                Player::None, Player::None, Player::None
+            ],
+            .player = Player::X
+        };
+    }
+    
+    render: fn (&this) = {
+        intermediate := "───┼───┼───";
+        row1 := " ${player_text(&this.data, 0)} │ ${player_text(&this.data, 1)} │ ${player_text(&this.data, 2)} ";
+        row2 := " ${player_text(&this.data, 3)} │ ${player_text(&this.data, 4)} │ ${player_text(&this.data, 5)} ";
+        row3 := " ${player_text(&this.data, 6)} │ ${player_text(&this.data, 7)} │ ${player_text(&this.data, 8)} ";
+        row1.test::print();
+        intermediate.test::print();
+        row2.test::print();
+        intermediate.test::print();
+        row3.test::print();
+    }
+    
+    play: fn (&mut this) = {
+        "${this.player}'s turn: ".test::print();
+        idx: mut u32 = 10;
+        while (idx > 9 && *this.data[idx] != Player::None) {
+            idx = test::read_uint();
+        }
+        *this.data[idx] = this.player;
+        this.player = this.player.cycle();
+    }
+    
+    check_winner: fn (&this) -> Player? = {
+        // Horizontal winner
+        if (*this.data[0] == *this.data[1] && *this.data[1] == *this.data[2])
+            return *this.data[0];
+        if (*this.data[3] == *this.data[4] && *this.data[4] == *this.data[5])
+            return *this.data[3];
+        if (*this.data[6] == *this.data[7] && *this.data[7] == *this.data[8])
+            return *this.data[6];
+        
+        // Vertical winner
+        if (*this.data[0] == *this.data[3] && *this.data[3] == *this.data[6])
+            return *this.data[0];
+        if (*this.data[1] == *this.data[4] && *this.data[4] == *this.data[7])
+            return *this.data[1];
+        if (*this.data[2] == *this.data[5] && *this.data[5] == *this.data[8])
+            return *this.data[2];
+        
+        // Diagonal winner
+        if (*this.data[0] == *this.data[4] && *this.data[4] == *this.data[8])
+            return *this.data[0];
+        if (*this.data[2] == *this.data[4] && *this.data[4] == *this.data[6])
+            return *this.data[2];
+        
+        return null;
+    }
+}
+
+main: fn = {
+    game: mut = Game::new();
+    game.render();
+    while (true) {
+        game.play();
+        game.render();
+        if |winner| (game.check_winner()) {
+            if (winner != Player::None) {
+                "${winner} won".test::print();
+                break;
+            }
+        }
+    }
+}
+```
+
+## Static Members
+
+Members can be marked as static:
+
+```yoyo
+MyStruct: struct = {
+    // Instance field
+    value: i32,
+    
+    // Static field (shared across all instances)
+    static count: i32,
+    
+    // Static method
+    static get_count: fn -> i32 = return count;
+}
+```
+
+## Access Control
+
+Control member visibility:
+
+```yoyo
+MyStruct: struct = {
+    // Public field (with attribute)
+    #(public)
+    public_field: i32,
+    
+    // Private field (default)
+    private_field: str
+}
+```

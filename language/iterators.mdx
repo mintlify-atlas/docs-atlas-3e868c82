@@ -1,0 +1,459 @@
+---
+title: Iterators
+description: Learn about Yoyo's iterator system and how to write iterable types
+---
+
+## Overview
+
+Yoyo provides a powerful iterator system similar to Rust's iterators. Iterators enable lazy, composable operations over sequences of values.
+
+## The Iterator Interface
+
+Iterators implement the `core::Iterator` interface:
+
+```yoyo
+Iterator: interface::<T> = {
+    next: fn (&mut this) -> T?;
+}
+```
+
+<Note>
+The `next` method returns an optional value - `Some(value)` when there are more elements, `null` when the iterator is exhausted.
+</Note>
+
+## For Loops and Iterators
+
+For loops work with any type implementing the Iterator interface:
+
+```yoyo
+for (item in iterable) {
+    // use item
+}
+
+// Destructuring tuples
+for (index, value in enumerated_iterator) {
+    // use index and value
+}
+```
+
+## Creating Iterators
+
+### Basic Iterator Implementation
+
+Implement the Iterator interface for your types:
+
+```yoyo
+LinkedListIterator: struct:&::<T> impl core::Iterator::<&T> = {
+    curr: (^Node::<T>)?,
+    
+    impl core::Iterator::<&T> {
+        next: fn (&mut this) -> (&T)? = {
+            if |node| (this.curr) {
+                this.curr = node.next;
+                return &node.data;
+            }
+            else return null;
+        }
+    }
+}
+
+// Create an iterator
+iter: fn::<T> (list: &LinkedList::<T>) -> LinkedListIterator::<T> = {
+    return LinkedListIterator::<T>{ .curr = list.first };
+};
+```
+
+### Iterator Factory Methods
+
+Provide methods on your types that return iterators:
+
+```yoyo
+List: class::<T> = {
+    first: (^mut Node::<T>)?,
+    
+    // Immutable iterator
+    iter: fn (&this) -> ListIter::<T> = {
+        return ListIter::<T>::new(this.first.value());
+    }
+    
+    // Mutable iterator
+    iter_mut: fn (&mut this) -> ListIterMut::<T> = {
+        return ListIterMut::<T>::new(this.first.value());
+    }
+}
+```
+
+## Iterator Combinators
+
+Iterators can be composed together using combinator patterns:
+
+### Enumerate Iterator
+
+Adds an index to each element:
+
+```yoyo
+EnumerateIter: struct:&::<T, O> impl core::Iterator::<(u64, O)> = {
+    actual_iter: T,
+    idx: u64,
+    
+    impl core::Iterator::<(u64, O)> {
+        next: fn (&mut this) -> (u64, O)? = {
+            if |nxt| (this.actual_iter.core::Iterator::<O>::next()) {
+                this.idx = this.idx + 1;
+                return (this.idx, nxt);
+            }
+            else return null;
+        }
+    }
+}
+
+enumerate: fn::<T: impl core::Iterator::<O>, O> (iter: T) -> EnumerateIter::<T, O> = {
+    return EnumerateIter::<T, O>{ .actual_iter = iter, .idx = 0 };
+};
+```
+
+### Chain Iterator
+
+Combines two iterators sequentially:
+
+```yoyo
+ChainIter: struct:&::<A, B, O> impl core::Iterator::<O> = {
+    first_iter: A,
+    second_iter: B,
+    
+    impl core::Iterator::<O> {
+        next: fn (&mut this) -> O? = {
+            if |nxt| (this.first_iter.core::Iterator::<O>::next()) {
+                return nxt;
+            }
+            else return this.second_iter.core::Iterator::<O>::next();
+        }
+    }
+}
+
+chain: fn::<A: impl core::Iterator::<O>, B: impl core::Iterator::<O>, O> 
+    (first: A, snd: B) -> ChainIter::<A, B, O> = {
+    return ChainIter::<A, B, O>{ .first_iter = first, .second_iter = snd };
+};
+```
+
+### Map Iterator
+
+Transforms each element:
+
+```yoyo
+MapIter: struct:&::<I, F, T, U> impl core::Iterator::<U> = {
+    iter: I,
+    mapper: F,
+    
+    impl core::Iterator::<U> {
+        next: fn (&mut this) -> U? = {
+            if |value| (this.iter.next()) {
+                return this.mapper(value);
+            }
+            return null;
+        }
+    }
+}
+
+map: fn::<I: impl Iterator::<T>, T, U> 
+    (iter: I, mapper: fn(T) -> U) -> MapIter::<I, fn(T)->U, T, U> = {
+    return MapIter{ .iter = iter, .mapper = mapper };
+};
+```
+
+### Filter Iterator
+
+Filters elements based on a predicate:
+
+```yoyo
+FilterIter: struct:&::<I, F, T> impl core::Iterator::<T> = {
+    iter: I,
+    predicate: F,
+    
+    impl core::Iterator::<T> {
+        next: fn (&mut this) -> T? = {
+            while |value| (this.iter.next()) {
+                if (this.predicate(&value)) {
+                    return value;
+                }
+            }
+            return null;
+        }
+    }
+}
+```
+
+## Chaining Combinators
+
+Iterators can be chained together fluently:
+
+```yoyo
+main: fn = {
+    a := LinkedList::<str>::new();
+    a.append("Hello");
+    a.append("World");
+    a.append("Stuff");
+    
+    b := LinkedList::<str>::new();
+    b.append("Second");
+    b.append("List");
+    
+    // Chain multiple operations
+    for (item in a.iter().chain(b.iter()).enumerate()) {
+        app::func(&"${item.0}: ${*item.1}");
+    }
+}
+```
+
+## Complete Iterator Example
+
+<Accordion title="Full LinkedList with Iterator">
+```yoyo
+Node: struct::<T> = {
+    data: T,
+    next: (^Node::<T>)?
+}
+
+LinkedList: struct::<T> = {
+    first: (^Node::<T>)?,
+    
+    new: fn -> This = return This{ .first = null };
+    
+    append: fn (&mut this, value: T) = {
+        if |val| (this.first) {
+            last: mut = val;
+            should_loop: mut = true;
+            while (should_loop) {
+                if |nxt| (last.next) last = nxt;
+                else should_loop = false;
+            }
+            last.next = gcnew Node::<T>{ .data = value, .next = null };
+        } else {
+            this.first = gcnew Node::<T>{ .data = value, .next = null };
+        }
+    }
+}
+
+LinkedListIterator: struct:&::<T> impl core::Iterator::<&T> = {
+    curr: (^Node::<T>)?,
+    
+    impl core::Iterator::<&T> {
+        next: fn (&mut this) -> (&T)? = {
+            if |node| (this.curr) {
+                this.curr = node.next;
+                return &node.data;
+            }
+            else return null;
+        }
+    }
+}
+
+iter: fn::<T> (list: &LinkedList::<T>) -> LinkedListIterator::<T> = {
+    return LinkedListIterator::<T>{ .curr = list.first };
+};
+
+// Usage
+main: fn = {
+    list := LinkedList::<i32>::new();
+    list.append(10);
+    list.append(20);
+    list.append(30);
+    
+    for (value in list.iter()) {
+        // value is &i32
+        println("${*value}");
+    }
+}
+```
+</Accordion>
+
+## Mutable Iterators
+
+Provide mutable access to elements:
+
+```yoyo
+ListIterMut: struct::<T> impl Iterator = {
+    node: ^mut Node::<T>,
+    
+    new: fn (node: ^mut Node::<T>) -> This = return This{ node };
+    
+    Iterator {
+        ElementTy: alias = &mut T;
+        
+        is_end: fn (&this) -> bool = {
+            return this.node.next.has_value();
+        }
+        
+        advance: fn (&mut this) = {
+            if (this.node.next) {
+                this.node = *this.node.next.value();
+            }
+        }
+        
+        value: fn -> ElementTy = return &mut node.value;
+    }
+}
+
+// Usage
+for (elem in list.iter_mut()) {
+    *elem = *elem * 2;  // Modify in place
+}
+```
+
+## Consuming Iterators
+
+### Collect
+
+Gather iterator elements into a collection:
+
+```yoyo
+collect: fn::<I: impl Iterator::<T>, T> (iter: I) -> [T] = {
+    result: mut [T] = [];
+    for (item in iter) {
+        result.push(item);
+    }
+    return result;
+};
+
+// Usage
+array := iterator.collect();
+```
+
+### Fold/Reduce
+
+Combine elements into a single value:
+
+```yoyo
+fold: fn::<I: impl Iterator::<T>, T, Acc> 
+    (iter: I, init: Acc, f: fn(Acc, T) -> Acc) -> Acc = {
+    accumulator: mut = init;
+    for (item in iter) {
+        accumulator = f(accumulator, item);
+    }
+    return accumulator;
+};
+
+// Usage
+sum := numbers.iter().fold(0, ||(acc, x) acc + x);
+```
+
+### Count
+
+Count the number of elements:
+
+```yoyo
+count: fn::<I: impl Iterator::<T>, T> (iter: I) -> usize = {
+    count: mut = 0;
+    for (_ in iter) {
+        count = count + 1;
+    }
+    return count;
+};
+```
+
+## Iterator Adapters Example
+
+Combining multiple iterator operations:
+
+```yoyo
+main: fn = {
+    numbers := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    
+    // Chain operations: filter evens, double them, enumerate
+    result := numbers.iter()
+        .filter(||(x) *x % 2 == 0)
+        .map(||(x) *x * 2)
+        .enumerate()
+        .collect();
+    
+    // result: [(0, 4), (1, 8), (2, 12), (3, 16), (4, 20)]
+}
+```
+
+## Lazy Evaluation
+
+Iterators are lazy - they only compute values when needed:
+
+```yoyo
+// This doesn't execute anything yet
+chained := list1.iter()
+    .map(transform)
+    .filter(predicate)
+    .enumerate();
+
+// Only when we consume the iterator does it execute
+for (item in chained) {
+    // Now the transformations happen
+}
+```
+
+## Best Practices
+
+<Accordion title="Use non-owning iterators for views">
+Iterators should typically not own their data:
+
+```yoyo
+// Good - non-owning iterator
+MyIterator: struct:&::<T> impl Iterator::<&T> = { }
+
+// Allows borrowing from the original collection
+```
+</Accordion>
+
+<Accordion title="Return references when possible">
+Avoid copying data unnecessarily:
+
+```yoyo
+// Good - returns reference
+impl Iterator::<&T> {
+    next: fn (&mut this) -> (&T)? = { }
+}
+
+// Avoid - copies data
+impl Iterator::<T> {
+    next: fn (&mut this) -> T? = { }
+}
+```
+</Accordion>
+
+<Accordion title="Provide both iter() and iter_mut()">
+Offer both immutable and mutable iteration:
+
+```yoyo
+MyCollection: struct::<T> = {
+    iter: fn (&this) -> MyIter::<T> = { };
+    iter_mut: fn (&mut this) -> MyIterMut::<T> = { };
+}
+```
+</Accordion>
+
+## Custom Iterator Example
+
+```yoyo
+// Range iterator
+Range: struct impl core::Iterator::<i32> = {
+    current: i32,
+    end: i32,
+    
+    impl core::Iterator::<i32> {
+        next: fn (&mut this) -> i32? = {
+            if (this.current < this.end) {
+                result := this.current;
+                this.current = this.current + 1;
+                return result;
+            }
+            return null;
+        }
+    }
+}
+
+range: fn (start: i32, end: i32) -> Range = {
+    return Range{ .current = start, .end = end };
+};
+
+// Usage
+for (i in range(0, 10)) {
+    println("${i}");
+}
+```

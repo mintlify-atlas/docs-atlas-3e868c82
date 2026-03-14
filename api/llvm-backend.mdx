@@ -1,0 +1,506 @@
+---
+title: "LLVM Backend API"
+description: "API reference for Yoyo's LLVM-based compilation backend"
+---
+
+## Overview
+
+The LLVM backend provides native code generation and JIT compilation for Yoyo programs using LLVM's infrastructure. This backend is optimized for performance and produces machine code through LLVM's optimization pipeline.
+
+## When to Use the LLVM Backend
+
+Use the LLVM backend when:
+- You need maximum runtime performance
+- You're targeting production deployments
+- You want native code generation with platform-specific optimizations
+- You need to link against static or dynamic libraries
+- AOT (Ahead-of-Time) compilation is preferred
+
+**Trade-offs:**
+- Longer compilation times due to LLVM's optimization passes
+- Larger memory footprint during compilation
+- Platform-specific binaries
+
+---
+
+## LLVMEngine
+
+The main engine class for LLVM-based compilation and execution.
+
+### Class Definition
+
+```cpp
+class LLVMEngine : public Engine {
+public:
+    llvm::orc::ThreadSafeContext llvm_context;
+    std::unique_ptr<llvm::orc::LLJIT> jit;
+    
+    LLVMAppModule* addAppModule(const std::string& name);
+    void addModule(const std::string& module_name, std::string source);
+    void compile();
+    void prepareForExecution();
+    void addStaticLibrary(std::string_view path);
+    void addDynamicLibrary(std::string_view path);
+    virtual void* createGlobalConstant(const Type& type, 
+                                       const std::vector<Constant>& args, 
+                                       IRGenerator*) override;
+};
+```
+
+### Members
+
+<ParamField path="llvm_context" type="llvm::orc::ThreadSafeContext">
+  Thread-safe LLVM context that wraps the underlying LLVMContext for concurrent access. This ensures safe multi-threaded compilation.
+</ParamField>
+
+<ParamField path="jit" type="std::unique_ptr<llvm::orc::LLJIT>">
+  LLVM's lazy JIT compiler instance. Handles on-demand compilation and execution of generated IR.
+</ParamField>
+
+### Methods
+
+<ParamField path="addAppModule" type="LLVMAppModule*">
+  Creates and registers a new application module for native interop.
+  
+  **Parameters:**
+  - `name` (string): Unique identifier for the module
+  
+  **Returns:** Pointer to the created `LLVMAppModule` for adding native functions and types.
+  
+  **Example:**
+  ```cpp
+  LLVMEngine engine;
+  auto* module = engine.addAppModule("my_native");
+  ```
+</ParamField>
+
+<ParamField path="addModule" type="void">
+  Parses and adds a Yoyo source module to the engine.
+  
+  **Parameters:**
+  - `module_name` (string): Name/path identifier for the module
+  - `source` (string): Yoyo source code content
+  
+  **Example:**
+  ```cpp
+  engine.addModule("main.yo", "main: () = { println(\"Hello\"); }");
+  ```
+</ParamField>
+
+<ParamField path="compile" type="void">
+  Compiles all added modules into LLVM IR and runs optimization passes.
+  
+  **Note:** Must be called after all modules are added and before `prepareForExecution()`.
+</ParamField>
+
+<ParamField path="prepareForExecution" type="void">
+  Finalizes the JIT compilation and prepares the engine for code execution. Links all modules and resolves symbols.
+  
+  **Must be called after** `compile()` and before `execute()`.
+</ParamField>
+
+<ParamField path="addStaticLibrary" type="void">
+  Links a static library (.a/.lib) into the compilation unit.
+  
+  **Parameters:**
+  - `path` (string_view): File system path to the static library
+  
+  **Example:**
+  ```cpp
+  engine.addStaticLibrary("/usr/lib/libmath.a");
+  ```
+</ParamField>
+
+<ParamField path="addDynamicLibrary" type="void">
+  Loads and links a dynamic library (.so/.dylib/.dll) for runtime access.
+  
+  **Parameters:**
+  - `path` (string_view): File system path to the dynamic library
+  
+  **Example:**
+  ```cpp
+  engine.addDynamicLibrary("/usr/lib/libcurl.so");
+  ```
+</ParamField>
+
+<ParamField path="createGlobalConstant" type="void*">
+  Allocates and initializes a global constant value.
+  
+  **Parameters:**
+  - `type` (Type): Yoyo type of the constant
+  - `args` (vector&lt;Constant&gt;): Initialization arguments
+  - `IRGenerator*`: Current IR generator context
+  
+  **Returns:** Pointer to the allocated constant data.
+</ParamField>
+
+---
+
+## LLVMIRGenerator
+
+Generates LLVM IR from Yoyo AST nodes.
+
+### Class Definition
+
+```cpp
+class LLVMIRGenerator : public IRGenerator {
+public:
+    explicit LLVMIRGenerator(llvm::LLVMContext& ctx);
+    
+    llvm::Value* currentReturnAddress;
+    llvm::BasicBlock* returnBlock;
+    llvm::LLVMContext& context;
+    llvm::Module* code;
+    std::unique_ptr<llvm::IRBuilder<>> builder;
+    
+    std::vector<std::unordered_map<std::string, 
+                std::tuple<llvm::Value*, Type, llvm::Value*>>> variables;
+    
+    llvm::BasicBlock* break_to = nullptr;
+    llvm::BasicBlock* continue_to = nullptr;
+    
+    // Type conversion
+    llvm::Type* ToLLVMType(const Type& type, bool is_ref);
+    llvm::FunctionType* ToLLVMSignature(const FunctionSignature& sig);
+    
+    // Memory management
+    llvm::AllocaInst* Alloca(std::string_view name, llvm::Type* type);
+    llvm::Value* Malloc(std::string_view name, llvm::Value* size);
+    llvm::Value* GCMalloc(llvm::Value* size);
+    llvm::Value* GCMalloc(size_t size);
+    void Free(llvm::Value* value);
+    
+    // Scope management
+    Type reduceLiteral(const Type& src, llvm::Value* val);
+    void pushScope();
+    void popScope();
+    void callDestructors(size_t depth = 0);
+    
+    // Code generation
+    bool GenerateIR(std::string_view name, 
+                    std::vector<std::unique_ptr<Statement>> statements, 
+                    LLModule* md, 
+                    Engine* eng);
+    
+    std::optional<Type> getVariableType(const std::string& name, 
+                                        Expression*) override;
+    
+    llvm::StructType* hanldeClassDeclaration(
+        std::span<const ClassVariable> vars, 
+        Ownership own, 
+        std::string_view name);
+};
+```
+
+### Constructor
+
+<ParamField path="LLVMIRGenerator" type="constructor">
+  Creates a new LLVM IR generator.
+  
+  **Parameters:**
+  - `ctx` (llvm::LLVMContext&): LLVM context for IR generation
+</ParamField>
+
+### Key Members
+
+<ParamField path="variables" type="vector<unordered_map<...>>">
+  Stack of variable scopes. Each scope maps variable names to tuples of:
+  1. `llvm::Value*` - alloca instruction for the variable
+  2. `Type` - Yoyo type information
+  3. `llvm::Value*` - drop flag for RAII cleanup
+</ParamField>
+
+<ParamField path="builder" type="unique_ptr<llvm::IRBuilder<>>">
+  LLVM IR builder for emitting instructions into basic blocks.
+</ParamField>
+
+### Type Conversion Methods
+
+<ParamField path="ToLLVMType" type="llvm::Type*">
+  Converts a Yoyo type to its LLVM IR equivalent.
+  
+  **Parameters:**
+  - `type` (Type): Yoyo type to convert
+  - `is_ref` (bool): Whether this is a reference type
+  
+  **Returns:** Corresponding LLVM type representation.
+</ParamField>
+
+<ParamField path="ToLLVMSignature" type="llvm::FunctionType*">
+  Converts a Yoyo function signature to an LLVM function type.
+  
+  **Parameters:**
+  - `sig` (FunctionSignature): Function signature to convert
+  
+  **Returns:** LLVM function type with proper calling convention.
+</ParamField>
+
+### Memory Allocation
+
+<ParamField path="Alloca" type="llvm::AllocaInst*">
+  Allocates stack memory for a local variable.
+  
+  **Parameters:**
+  - `name` (string_view): Variable name for debugging
+  - `type` (llvm::Type*): LLVM type to allocate
+  
+  **Returns:** Alloca instruction representing the stack slot.
+</ParamField>
+
+<ParamField path="GCMalloc" type="llvm::Value*">
+  Allocates heap memory through the garbage collector.
+  
+  **Overloads:**
+  - `GCMalloc(llvm::Value* size)` - Dynamic size allocation
+  - `GCMalloc(size_t size)` - Fixed size allocation
+  
+  **Returns:** Pointer to allocated memory.
+</ParamField>
+
+### Code Generation
+
+<ParamField path="GenerateIR" type="bool">
+  Main entry point for IR generation from AST statements.
+  
+  **Parameters:**
+  - `name` (string_view): Module or function name
+  - `statements` (vector&lt;unique_ptr&lt;Statement&gt;&gt;): AST nodes to compile
+  - `md` (LLModule*): Target module for generated code
+  - `eng` (Engine*): Parent engine instance
+  
+  **Returns:** `true` if generation succeeded, `false` on error.
+</ParamField>
+
+---
+
+## LLModule
+
+Represents a compiled LLVM module containing Yoyo code.
+
+### Class Definition
+
+```cpp
+struct LLModule : public ModuleBase {
+    llvm::orc::ThreadSafeModule code;
+    
+    std::unordered_map<ClassDeclaration*, llvm::StructType*> classes_types;
+    std::unordered_map<UnionDeclaration*, llvm::StructType*> union_types;
+    std::unordered_map<std::string, 
+                       std::pair<llvm::StructType*, 
+                                 std::unique_ptr<LambdaExpression>>> lambdas;
+    
+    std::pair<std::string, std::tuple<std::string, llvm::StructType*, 
+                                       ClassDeclaration*>> 
+        findClassWithType(const std::string& block, const std::string& name);
+    
+    std::pair<std::string, std::pair<UnionDeclaration*, llvm::StructType*>>
+        findUnionWithType(const std::string& block, const std::string& name);
+    
+    llvm::Type* ToLLVMType(const Type& type, 
+                           const std::string& hash, 
+                           IRGenerator*, 
+                           const std::vector<Type>& disallowed_types);
+    
+    static void makeBuiltinModule(Engine* eng);
+    void dumpIR();
+};
+```
+
+### Members
+
+<ParamField path="code" type="llvm::orc::ThreadSafeModule">
+  Thread-safe wrapper around the LLVM module containing all generated IR code.
+</ParamField>
+
+<ParamField path="classes_types" type="unordered_map">
+  Maps Yoyo class declarations to their LLVM struct type representations.
+</ParamField>
+
+<ParamField path="union_types" type="unordered_map">
+  Maps Yoyo union declarations to their LLVM struct type representations (tagged unions).
+</ParamField>
+
+<ParamField path="lambdas" type="unordered_map">
+  Maps lambda type names to their capture struct type and AST expression.
+</ParamField>
+
+### Methods
+
+<ParamField path="dumpIR" type="void">
+  Prints the generated LLVM IR to stdout for debugging purposes.
+  
+  **Example:**
+  ```cpp
+  module->dumpIR(); // Outputs human-readable LLVM IR
+  ```
+</ParamField>
+
+<ParamField path="makeBuiltinModule" type="static void">
+  Creates and registers built-in types and functions for the LLVM backend.
+  
+  **Parameters:**
+  - `eng` (Engine*): Engine to register built-ins into
+</ParamField>
+
+---
+
+## LLVMAppModule
+
+Specialized module for native C/C++ interop.
+
+### Class Definition
+
+```cpp
+class LLVMAppModule : public LLModule {
+public:
+    template<typename R, typename... Args>
+    Result addFunction(std::string sig_str, 
+                      R(*func)(Args...), 
+                      std::string name);
+    
+    Result addEnum(std::string enum_name, 
+                   std::unordered_map<std::string, int32_t> values);
+    
+    Result addClass(std::string class_name, 
+                    std::vector<ClassVariable> variables, 
+                    Ownership sh, 
+                    std::string block_hash);
+};
+```
+
+### Result Enum
+
+```cpp
+enum class Result {
+    Success,
+    NullParameter,
+    InvalidSignature,
+    ParameterCountMismatch,
+    ReturnTypeMismatch,
+    ParameterTypeMismatch,
+    DuplicateEnumValue,
+};
+```
+
+### Methods
+
+<ParamField path="addFunction" type="Result">
+  Registers a native C++ function to be callable from Yoyo code.
+  
+  **Template Parameters:**
+  - `R`: Return type of the native function
+  - `Args...`: Parameter types of the native function
+  
+  **Parameters:**
+  - `sig_str` (string): Yoyo function signature string (e.g., `"(x: i32, y: i32) -> i32"`)
+  - `func` (R(*)(Args...)): Function pointer to the native implementation
+  - `name` (string): Name to expose in Yoyo code
+  
+  **Returns:** `Result` indicating success or specific error.
+  
+  **Example:**
+  ```cpp
+  int32_t add(int32_t a, int32_t b) { return a + b; }
+  
+  auto result = module->addFunction(
+      "(a: i32, b: i32) -> i32",
+      add,
+      "native_add"
+  );
+  
+  if (result != Result::Success) {
+      // Handle error
+  }
+  ```
+  
+  **Validation:**
+  - Checks signature parsing validity
+  - Verifies parameter count matches template arguments
+  - Validates return type compatibility
+  - Handles SRET (struct return) calling convention
+</ParamField>
+
+<ParamField path="addEnum" type="Result">
+  Registers a native enum type.
+  
+  **Parameters:**
+  - `enum_name` (string): Name for the enum in Yoyo
+  - `values` (unordered_map&lt;string, int32_t&gt;): Map of variant names to values
+  
+  **Returns:** `Result::Success` or `Result::DuplicateEnumValue`.
+  
+  **Example:**
+  ```cpp
+  module->addEnum("Status", {
+      {"OK", 0},
+      {"Error", 1},
+      {"Pending", 2}
+  });
+  ```
+</ParamField>
+
+<ParamField path="addClass" type="Result">
+  Registers a native class/struct type.
+  
+  **Parameters:**
+  - `class_name` (string): Name for the class in Yoyo
+  - `variables` (vector&lt;ClassVariable&gt;): Class member definitions
+  - `sh` (Ownership): Ownership semantics (value, reference, etc.)
+  - `block_hash` (string): Namespace hash for scoping
+  
+  **Returns:** `Result::Success` on successful registration.
+</ParamField>
+
+---
+
+## Complete Usage Example
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>
+#include <yoyo/llvm/app_module.h>
+
+using namespace Yoyo;
+
+// Native function to expose
+int32_t multiply(int32_t a, int32_t b) {
+    return a * b;
+}
+
+int main() {
+    // Create LLVM engine
+    LLVMEngine engine;
+    
+    // Add native module
+    auto* native = engine.addAppModule("native");
+    native->addFunction(
+        "(a: i32, b: i32) -> i32",
+        multiply,
+        "multiply"
+    );
+    
+    // Add Yoyo source
+    engine.addModule("main.yo", R"(
+        import native;
+        
+        main: () = {
+            result := multiply(6, 7);
+            println(result);
+        }
+    )");
+    
+    // Compile and execute
+    engine.compile();
+    engine.prepareForExecution();
+    engine.execute();
+    
+    return 0;
+}
+```
+
+---
+
+## See Also
+
+- [YVM Backend API](/api/yvm-backend) - Bytecode interpreter backend
+- [Type Checker](/api/type-checker) - Type system reference
+- [Borrow Checker](/api/borrow-checker) - Memory safety analysis

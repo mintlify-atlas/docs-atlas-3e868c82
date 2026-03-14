@@ -1,0 +1,1058 @@
+---
+title: Expression
+description: AST nodes representing expressions in the Yoyo language
+---
+
+## Overview
+
+The Expression module defines all expression types in Yoyo's Abstract Syntax Tree (AST). Each expression class inherits from the base `Expression` class and represents a specific syntactic construct that evaluates to a value.
+
+All expressions participate in type checking and are eventually lowered to the borrow checker's intermediate representation.
+
+## Base Class
+
+### Expression
+
+The abstract base class for all expressions.
+
+```cpp
+class Expression : public ASTNode {
+public:
+    ~Expression() override = default;
+    virtual ExpressionVariant toVariant() = 0;
+    Type evaluated_type;
+};
+```
+
+<ParamField path="evaluated_type" type="Type">
+  The type of the expression, populated by the type checker
+</ParamField>
+
+### Factory Method
+
+```cpp
+static auto attachSLAndParent(
+    std::unique_ptr<Expression> self, 
+    SourceLocation bg, 
+    SourceLocation end,
+    ASTNode* parent = nullptr
+) -> std::unique_ptr<Expression>;
+```
+
+<ResponseField name="attachSLAndParent">
+  Attaches source location and parent information to an expression
+</ResponseField>
+
+---
+
+## Literal Expressions
+
+<Expandable title="IntegerLiteral">
+
+### IntegerLiteral
+
+Represents integer literal values.
+
+```cpp
+class IntegerLiteral : public Expression {
+public:
+    std::string text;
+    explicit IntegerLiteral(std::string tk);
+    explicit IntegerLiteral(const std::string_view tk);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="text" type="std::string">
+  The string representation of the integer (e.g., "42", "0xFF")
+</ParamField>
+
+**Example:**
+```yoyo
+let x = 42;
+let y = 0xFF;
+```
+
+</Expandable>
+
+<Expandable title="BooleanLiteral">
+
+### BooleanLiteral
+
+Represents boolean literal values (`true` or `false`).
+
+```cpp
+class BooleanLiteral : public Expression {
+public:
+    Token token;
+    explicit BooleanLiteral(const Token& tk);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="token" type="Token">
+  The token containing the boolean value
+</ParamField>
+
+**Example:**
+```yoyo
+let flag = true;
+let active = false;
+```
+
+</Expandable>
+
+<Expandable title="RealLiteral">
+
+### RealLiteral
+
+Represents floating-point literal values.
+
+```cpp
+class RealLiteral : public Expression {
+public:
+    Token token;
+    explicit RealLiteral(const Token& tk);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="token" type="Token">
+  The token containing the floating-point value
+</ParamField>
+
+**Example:**
+```yoyo
+let pi = 3.14159;
+let e = 2.71828;
+```
+
+</Expandable>
+
+<Expandable title="CharLiteral">
+
+### CharLiteral
+
+Represents character literal values.
+
+```cpp
+class CharLiteral : public Expression {
+public:
+    uint32_t value;
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="value" type="uint32_t">
+  The Unicode code point of the character
+</ParamField>
+
+**Example:**
+```yoyo
+let ch = 'A';
+let emoji = '😀';
+```
+
+</Expandable>
+
+<Expandable title="StringLiteral">
+
+### StringLiteral
+
+Represents string literals with optional interpolation.
+
+```cpp
+class StringLiteral : public Expression {
+public:
+    std::vector<std::variant<std::string, std::unique_ptr<Expression>>> literal;
+    explicit StringLiteral(decltype(literal) value);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="literal" type="std::vector<std::variant<std::string, std::unique_ptr<Expression>>>">
+  Sequence of string segments and interpolated expressions
+</ParamField>
+
+**Example:**
+```yoyo
+let name = "Alice";
+let greeting = "Hello, {name}!";
+```
+
+</Expandable>
+
+<Expandable title="NullLiteral">
+
+### NullLiteral
+
+Represents the `null` value.
+
+```cpp
+class NullLiteral : public Expression {
+    ExpressionVariant toVariant() override { return this; }
+};
+```
+
+**Example:**
+```yoyo
+let opt: ?i32 = null;
+```
+
+</Expandable>
+
+---
+
+## Composite Literals
+
+<Expandable title="TupleLiteral">
+
+### TupleLiteral
+
+Represents tuple literals with multiple elements.
+
+```cpp
+class TupleLiteral : public Expression {
+public:
+    std::vector<std::unique_ptr<Expression>> elements;
+    explicit TupleLiteral(std::vector<std::unique_ptr<Expression>> elems);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="elements" type="std::vector<std::unique_ptr<Expression>>">
+  The tuple elements in order
+</ParamField>
+
+**Example:**
+```yoyo
+let point = (10, 20);
+let triple = (1, "hello", true);
+```
+
+</Expandable>
+
+<Expandable title="ArrayLiteral">
+
+### ArrayLiteral
+
+Represents array literals, either with explicit elements or a repeat pattern.
+
+```cpp
+class ArrayLiteral : public Expression {
+public:
+    std::variant<
+        std::vector<std::unique_ptr<Expression>>,
+        std::pair<std::unique_ptr<Expression>, std::unique_ptr<Expression>>
+    > elements;
+    
+    explicit ArrayLiteral(std::vector<std::unique_ptr<Expression>> elems);
+    explicit ArrayLiteral(std::pair<std::unique_ptr<Expression>, std::unique_ptr<Expression>> elems);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="elements" type="variant">
+  Either a list of elements or a (value, count) pair for repetition
+</ParamField>
+
+**Example:**
+```yoyo
+let numbers = [1, 2, 3, 4, 5];
+let zeros = [0; 100];  // 100 zeros
+```
+
+</Expandable>
+
+<Expandable title="ObjectLiteral">
+
+### ObjectLiteral
+
+Represents object literals with named fields.
+
+```cpp
+class ObjectLiteral : public Expression {
+public:
+    Type t;
+    std::unordered_map<std::string, std::unique_ptr<Expression>> values;
+    ObjectLiteral(Type t, std::unordered_map<std::string, std::unique_ptr<Expression>> values);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="t" type="Type">
+  The type of the object being constructed
+</ParamField>
+
+<ParamField path="values" type="std::unordered_map<std::string, std::unique_ptr<Expression>>">
+  Map of field names to their initialization expressions
+</ParamField>
+
+**Example:**
+```yoyo
+let person = Person { name: "Alice", age: 30 };
+```
+
+</Expandable>
+
+---
+
+## Name Expressions
+
+<Expandable title="NameExpression">
+
+### NameExpression
+
+Represents a variable or function name.
+
+```cpp
+class NameExpression : public Expression {
+public:
+    std::string text;
+    explicit NameExpression(std::string tk);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="text" type="std::string">
+  The identifier name
+</ParamField>
+
+**Example:**
+```yoyo
+let x = value;
+let result = calculate();
+```
+
+</Expandable>
+
+<Expandable title="GenericNameExpression">
+
+### GenericNameExpression
+
+Represents a generic name with type arguments.
+
+```cpp
+class GenericNameExpression : public NameExpression {
+public:
+    std::vector<Type> arguments;
+    GenericNameExpression(std::string name, std::vector<Type> arguments);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="arguments" type="std::vector<Type>">
+  The type arguments for the generic
+</ParamField>
+
+**Example:**
+```yoyo
+let vec = Vec<i32>::new();
+let map = HashMap<String, i32>::new();
+```
+
+</Expandable>
+
+<Expandable title="ScopeOperation">
+
+### ScopeOperation
+
+Represents a scope resolution (type name used as a value).
+
+```cpp
+class ScopeOperation : public Expression {
+public:
+    Type type;
+    explicit ScopeOperation(Type tp);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="type" type="Type">
+  The type being referenced
+</ParamField>
+
+**Example:**
+```yoyo
+let constructor = MyStruct::new;
+```
+
+</Expandable>
+
+---
+
+## Operations
+
+<Expandable title="PrefixOperation">
+
+### PrefixOperation
+
+Represents unary prefix operations.
+
+```cpp
+class PrefixOperation : public Expression {
+public:
+    Token op;
+    std::unique_ptr<Expression> operand;
+    PrefixOperation(const Token& op, std::unique_ptr<Expression> operand);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="op" type="Token">
+  The operator token (e.g., `-`, `!`, `*`, `&`)
+</ParamField>
+
+<ParamField path="operand" type="std::unique_ptr<Expression>">
+  The expression being operated on
+</ParamField>
+
+**Example:**
+```yoyo
+let negative = -value;
+let inverted = !flag;
+let reference = &variable;
+let dereferenced = *pointer;
+```
+
+</Expandable>
+
+<Expandable title="PostfixOperation">
+
+### PostfixOperation
+
+Represents unary postfix operations.
+
+```cpp
+class PostfixOperation : public Expression {
+public:
+    Token op;
+    std::unique_ptr<Expression> operand;
+    PostfixOperation(const Token& op, std::unique_ptr<Expression> operand);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="op" type="Token">
+  The operator token
+</ParamField>
+
+<ParamField path="operand" type="std::unique_ptr<Expression>">
+  The expression being operated on
+</ParamField>
+
+</Expandable>
+
+<Expandable title="BinaryOperation">
+
+### BinaryOperation
+
+Represents binary operations (arithmetic, comparison, field access, etc.).
+
+```cpp
+class BinaryOperation : public Expression {
+public:
+    Token op;
+    std::unique_ptr<Expression> lhs;
+    std::unique_ptr<Expression> rhs;
+    OverloadDetailsBinary* selected = nullptr;
+    std::vector<Type> subtypes;
+    ModuleBase* module;
+    
+    BinaryOperation(const Token& op, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="op" type="Token">
+  The binary operator
+</ParamField>
+
+<ParamField path="lhs" type="std::unique_ptr<Expression>">
+  Left-hand side expression
+</ParamField>
+
+<ParamField path="rhs" type="std::unique_ptr<Expression>">
+  Right-hand side expression
+</ParamField>
+
+<ParamField path="selected" type="OverloadDetailsBinary*">
+  The selected operator overload (populated by type checker)
+</ParamField>
+
+<ParamField path="subtypes" type="std::vector<Type>">
+  Type substitutions for generic operators
+</ParamField>
+
+**Example:**
+```yoyo
+let sum = a + b;
+let greater = x > y;
+let field = obj.field_name;
+```
+
+</Expandable>
+
+<Expandable title="LogicalOperation">
+
+### LogicalOperation
+
+Represents short-circuiting logical operations (`&&`, `||`).
+
+```cpp
+class LogicalOperation : public Expression {
+public:
+    Token op;
+    std::unique_ptr<Expression> lhs;
+    std::unique_ptr<Expression> rhs;
+    LogicalOperation(const Token& op, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="op" type="Token">
+  The logical operator (`&&` or `||`)
+</ParamField>
+
+<ParamField path="lhs" type="std::unique_ptr<Expression>">
+  Left-hand side expression
+</ParamField>
+
+<ParamField path="rhs" type="std::unique_ptr<Expression>">
+  Right-hand side expression (evaluated conditionally)
+</ParamField>
+
+**Example:**
+```yoyo
+let both = condition1 && condition2;
+let either = flag1 || flag2;
+```
+
+</Expandable>
+
+---
+
+## Function Calls and Indexing
+
+<Expandable title="CallOperation">
+
+### CallOperation
+
+Represents function and method calls.
+
+```cpp
+class CallOperation : public Expression {
+public:
+    std::unique_ptr<Expression> callee;
+    std::vector<std::unique_ptr<Expression>> arguments;
+    CallOperation(std::unique_ptr<Expression> callee, std::vector<std::unique_ptr<Expression>> args);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="callee" type="std::unique_ptr<Expression>">
+  The function or callable being invoked
+</ParamField>
+
+<ParamField path="arguments" type="std::vector<std::unique_ptr<Expression>>">
+  The arguments to the call
+</ParamField>
+
+**Example:**
+```yoyo
+let result = function(arg1, arg2);
+let value = obj.method(param);
+```
+
+</Expandable>
+
+<Expandable title="SubscriptOperation">
+
+### SubscriptOperation
+
+Represents array/collection indexing.
+
+```cpp
+class SubscriptOperation : public Expression {
+public:
+    std::unique_ptr<Expression> object;
+    std::unique_ptr<Expression> index;
+    OverloadDetailsBinary* selected = nullptr;
+    std::vector<Type> subtypes;
+    ModuleBase* module;
+    
+    SubscriptOperation(std::unique_ptr<Expression> obj, std::unique_ptr<Expression> idx);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="object" type="std::unique_ptr<Expression>">
+  The collection being indexed
+</ParamField>
+
+<ParamField path="index" type="std::unique_ptr<Expression>">
+  The index expression
+</ParamField>
+
+<ParamField path="selected" type="OverloadDetailsBinary*">
+  The selected index operator overload
+</ParamField>
+
+**Example:**
+```yoyo
+let element = array[0];
+let value = map["key"];
+```
+
+</Expandable>
+
+---
+
+## Control Flow Expressions
+
+<Expandable title="IfExpression">
+
+### IfExpression
+
+Represents conditional expressions with `if-else`.
+
+```cpp
+class IfExpression : public Expression {
+public:
+    std::unique_ptr<Expression> condition;
+    std::unique_ptr<Expression> then_expr;
+    std::unique_ptr<Expression> else_expr;
+    bool then_transfers_control = true;
+    bool else_transfers_control = true;
+    
+    IfExpression(std::unique_ptr<Expression> cond, 
+                std::unique_ptr<Expression> then_, 
+                std::unique_ptr<Expression> else_);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="condition" type="std::unique_ptr<Expression>">
+  The boolean condition
+</ParamField>
+
+<ParamField path="then_expr" type="std::unique_ptr<Expression>">
+  Expression evaluated when condition is true
+</ParamField>
+
+<ParamField path="else_expr" type="std::unique_ptr<Expression>">
+  Expression evaluated when condition is false
+</ParamField>
+
+<ParamField path="then_transfers_control" type="bool">
+  True if the then branch returns/breaks/continues
+</ParamField>
+
+<ParamField path="else_transfers_control" type="bool">
+  True if the else branch returns/breaks/continues
+</ParamField>
+
+**Example:**
+```yoyo
+let max = if a > b { a } else { b };
+```
+
+</Expandable>
+
+<Expandable title="ConditionalExtraction">
+
+### ConditionalExtraction
+
+Represents pattern matching with conditional extraction.
+
+```cpp
+class ConditionalExtraction : public Expression {
+public:
+    enum CaptureType { Own, Ref, RefMut };
+    
+    std::string captured_name;
+    CaptureType then_capture_tp;
+    CaptureType else_capture_tp;
+    std::unique_ptr<Expression> condition;
+    std::unique_ptr<Expression> body;
+    std::string else_capture;
+    std::unique_ptr<Expression> else_body;
+    bool then_transfers_control = true;
+    bool else_transfers_control = true;
+    
+    ConditionalExtraction(
+        std::string name,
+        CaptureType cap,
+        std::unique_ptr<Expression> cond,
+        std::unique_ptr<Expression> body,
+        std::unique_ptr<Expression> else_,
+        std::string else_name = "",
+        CaptureType else_cap = Own);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="captured_name" type="std::string">
+  The name to bind the extracted value to
+</ParamField>
+
+<ParamField path="then_capture_tp" type="CaptureType">
+  How the then branch captures (Own, Ref, or RefMut)
+</ParamField>
+
+<ParamField path="condition" type="std::unique_ptr<Expression>">
+  The expression to extract from
+</ParamField>
+
+<ParamField path="body" type="std::unique_ptr<Expression>">
+  Expression executed when extraction succeeds
+</ParamField>
+
+<ParamField path="else_body" type="std::unique_ptr<Expression>">
+  Expression executed when extraction fails
+</ParamField>
+
+**Example:**
+```yoyo
+if |value| (optional as Some) {
+    value + 1
+} else {
+    0
+}
+```
+
+</Expandable>
+
+<Expandable title="BlockExpression">
+
+### BlockExpression
+
+Represents a block of statements followed by an expression.
+
+```cpp
+class BlockExpression : public Expression {
+public:
+    std::vector<std::unique_ptr<Statement>> statements;
+    std::unique_ptr<Expression> expr;
+    
+    BlockExpression(std::vector<std::unique_ptr<Statement>> stats, 
+                   std::unique_ptr<Expression> ex);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="statements" type="std::vector<std::unique_ptr<Statement>>">
+  Statements executed sequentially
+</ParamField>
+
+<ParamField path="expr" type="std::unique_ptr<Expression>">
+  The final expression whose value is the block's value
+</ParamField>
+
+**Example:**
+```yoyo
+let result = {
+    let x = 10;
+    let y = 20;
+    x + y
+};
+```
+
+</Expandable>
+
+---
+
+## Special Expressions
+
+<Expandable title="LambdaExpression">
+
+### LambdaExpression
+
+Represents anonymous function literals.
+
+```cpp
+class LambdaExpression : public Expression {
+public:
+    struct Capture {
+        Ownership cp_type;
+        std::string name;
+    };
+    
+    std::vector<Capture> captures;
+    FunctionSignature sig;
+    std::unique_ptr<Statement> body;
+    std::string hash;
+    
+    LambdaExpression(std::vector<Capture> captures, 
+                    FunctionSignature sig, 
+                    std::unique_ptr<Statement> body);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="captures" type="std::vector<Capture>">
+  Variables captured from the enclosing scope
+</ParamField>
+
+<ParamField path="sig" type="FunctionSignature">
+  The function signature (parameters and return type)
+</ParamField>
+
+<ParamField path="body" type="std::unique_ptr<Statement>">
+  The function body
+</ParamField>
+
+<ParamField path="hash" type="std::string">
+  Unique hash for the lambda's generated name
+</ParamField>
+
+**Example:**
+```yoyo
+let add = |x: i32, y: i32| -> i32 { x + y };
+let closure = [&value] |x| { x + value };
+```
+
+</Expandable>
+
+<Expandable title="AsExpression">
+
+### AsExpression
+
+Represents explicit type casts and conversions.
+
+```cpp
+class AsExpression : public Expression {
+public:
+    std::unique_ptr<Expression> expr;
+    Type dest;
+    AsExpression(std::unique_ptr<Expression> expr, Type dest);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="expr" type="std::unique_ptr<Expression>">
+  The expression to convert
+</ParamField>
+
+<ParamField path="dest" type="Type">
+  The destination type
+</ParamField>
+
+**Example:**
+```yoyo
+let wider = small_int as i64;
+let variant = value as SomeType;
+```
+
+</Expandable>
+
+<Expandable title="TryExpression">
+
+### TryExpression
+
+Represents the try operator for error propagation.
+
+```cpp
+class TryExpression : public Expression {
+public:
+    std::unique_ptr<Expression> expression;
+    TryExpression(std::unique_ptr<Expression> e);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="expression" type="std::unique_ptr<Expression>">
+  The expression that might fail
+</ParamField>
+
+**Example:**
+```yoyo
+let value = fallible_operation().try;
+```
+
+</Expandable>
+
+<Expandable title="GCNewExpression">
+
+### GCNewExpression
+
+Represents heap allocation using the garbage collector.
+
+```cpp
+class GCNewExpression : public Expression {
+public:
+    std::unique_ptr<Expression> target_expression;
+    GCNewExpression(std::unique_ptr<Expression> expr);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="target_expression" type="std::unique_ptr<Expression>">
+  The value to allocate on the heap
+</ParamField>
+
+**Example:**
+```yoyo
+let boxed = new MyStruct { field: value };
+```
+
+</Expandable>
+
+<Expandable title="SpawnExpression">
+
+### SpawnExpression
+
+Represents spawning a concurrent task.
+
+```cpp
+class SpawnExpression : public Expression {
+public:
+    std::unique_ptr<Expression> call_expr;
+    SpawnExpression(std::unique_ptr<Expression> call_expr);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="call_expr" type="std::unique_ptr<Expression>">
+  The function call to execute concurrently
+</ParamField>
+
+**Example:**
+```yoyo
+let task = spawn background_work();
+```
+
+</Expandable>
+
+<Expandable title="MacroInvocation">
+
+### MacroInvocation
+
+Represents macro invocations.
+
+```cpp
+class MacroInvocation : public Expression {
+public:
+    std::unique_ptr<Expression> macro_name;
+    std::variant<
+        std::unique_ptr<Expression>,
+        std::vector<std::pair<Token, SourceLocation>>
+    > left;
+    std::unique_ptr<Expression> right;
+    std::unique_ptr<Expression> result;
+    
+    MacroInvocation(std::unique_ptr<Expression> name, std::unique_ptr<Expression> left);
+    MacroInvocation(std::unique_ptr<Expression> name, 
+                   std::unique_ptr<Expression> left, 
+                   std::unique_ptr<Expression> right);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="macro_name" type="std::unique_ptr<Expression>">
+  The macro being invoked
+</ParamField>
+
+<ParamField path="left" type="variant">
+  Left argument (expression or token sequence)
+</ParamField>
+
+<ParamField path="right" type="std::unique_ptr<Expression>">
+  Optional right argument
+</ParamField>
+
+<ParamField path="result" type="std::unique_ptr<Expression>">
+  The expanded result (filled during macro expansion)
+</ParamField>
+
+**Example:**
+```yoyo
+let debug = debug!(value);
+```
+
+</Expandable>
+
+<Expandable title="GroupingExpression">
+
+### GroupingExpression
+
+Represents parenthesized expressions.
+
+```cpp
+class GroupingExpression : public Expression {
+public:
+    std::unique_ptr<Expression> expr;
+    explicit GroupingExpression(std::unique_ptr<Expression> expr);
+    ExpressionVariant toVariant() override;
+};
+```
+
+<ParamField path="expr" type="std::unique_ptr<Expression>">
+  The wrapped expression
+</ParamField>
+
+**Example:**
+```yoyo
+let result = (a + b) * c;
+```
+
+</Expandable>
+
+---
+
+## Ownership Enumeration
+
+```cpp
+enum class Ownership { 
+    Owning = 0, 
+    NonOwning, 
+    NonOwningMut 
+};
+```
+
+Defines how values are captured or passed:
+
+- **Owning**: Value is moved
+- **NonOwning**: Immutable reference
+- **NonOwningMut**: Mutable reference
+
+---
+
+## ExpressionVariant
+
+A type-safe variant containing pointers to all expression types:
+
+```cpp
+using ExpressionVariant = std::variant<
+    IntegerLiteral*,
+    BooleanLiteral*,
+    TupleLiteral*,
+    ArrayLiteral*,
+    RealLiteral*,
+    StringLiteral*,
+    NameExpression*,
+    PrefixOperation*,
+    BinaryOperation*,
+    GroupingExpression*,
+    LogicalOperation*,
+    PostfixOperation*,
+    CallOperation*,
+    SubscriptOperation*,
+    LambdaExpression*,
+    ScopeOperation*,
+    ObjectLiteral*,
+    NullLiteral*,
+    CharLiteral*,
+    GenericNameExpression*,
+    GCNewExpression*,
+    AsExpression*,
+    MacroInvocation*,
+    SpawnExpression*,
+    TryExpression*,
+    BlockExpression*,
+    IfExpression*,
+    ConditionalExtraction*
+>;
+```
+
+Used for type-safe visitor pattern implementations across the compiler pipeline.

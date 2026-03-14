@@ -1,0 +1,407 @@
+---
+title: Types
+description: Understanding Yoyo's type system including primitives, composites, and special types
+---
+
+## Overview
+
+Yoyo has a strong, static type system with type inference. The type system includes primitive types, composite types, references, and special types like optionals and tuples.
+
+## Primitive Types
+
+### Integer Types
+
+Yoyo provides both signed and unsigned integers of various sizes:
+
+<Tabs>
+  <Tab title="Signed Integers">
+    ```yoyo
+    i8   // 8-bit signed integer
+    i16  // 16-bit signed integer
+    i32  // 32-bit signed integer
+    i64  // 64-bit signed integer
+    ```
+  </Tab>
+  <Tab title="Unsigned Integers">
+    ```yoyo
+    u8   // 8-bit unsigned integer
+    u16  // 16-bit unsigned integer
+    u32  // 32-bit unsigned integer
+    u64  // 64-bit unsigned integer
+    ```
+  </Tab>
+</Tabs>
+
+```yoyo
+age: u32 = 25;
+temperature: i32 = -10;
+small: i8 = 127;
+size: usize = 1024;
+```
+
+### Floating Point Types
+
+```yoyo
+f32  // 32-bit floating point
+f64  // 64-bit floating point
+```
+
+```yoyo
+pi: f32 = 3.14159;
+precise: f64 = 2.718281828459045;
+```
+
+### Boolean Type
+
+```yoyo
+bool  // Boolean type (true or false)
+```
+
+```yoyo
+is_ready: bool = true;
+has_error: bool = false;
+```
+
+### Character Type
+
+```yoyo
+char  // Unicode character
+```
+
+```yoyo
+letter: char = 'A';
+emoji: char = '😀';
+```
+
+### String Type
+
+The `str` type represents UTF-8 encoded strings:
+
+```yoyo
+greeting: str = "Hello, World!";
+message: str = "Interpolation: ${42}";
+```
+
+### Void Type
+
+```yoyo
+void  // Unit type, represents absence of a value
+```
+
+```yoyo
+print_message: fn (msg: str) -> void = {
+    // Function returns nothing
+};
+```
+
+### Pointer Type
+
+```yoyo
+ptr  // Opaque pointer type
+```
+
+## Composite Types
+
+### Arrays
+
+#### Static Arrays
+
+Arrays with a fixed size known at compile time:
+
+```yoyo
+// Syntax: [Type; Size]
+fixed: [i32; 5] = [1, 2, 3, 4, 5];
+board: [Player; 9] = [Player::None; 9];
+```
+
+#### Dynamic Arrays
+
+Arrays with runtime-determined size:
+
+```yoyo
+// Syntax: [Type]
+numbers: [i32] = [1, 2, 3, 4, 5];
+names: [str] = ["Alice", "Bob", "Charlie"];
+```
+
+### Tuples
+
+Tuples group multiple values of different types:
+
+```yoyo
+// Tuple type syntax: (Type1, Type2, ...)
+pair: (i32, str) = (42, "answer");
+triple: (i32, f32, bool) = (1, 2.5, true);
+
+// Accessing tuple elements
+first := pair.0;
+second := pair.1;
+```
+
+### Slices
+
+Slices are views into arrays:
+
+```yoyo
+// Immutable slice
+view: [i32:&];
+
+// Mutable slice  
+mut_view: [i32:&mut];
+```
+
+## References
+
+Yoyo uses explicit reference types for borrowing:
+
+### Immutable References
+
+```yoyo
+// Syntax: &Type
+value: i32 = 42;
+ref_to_value: &i32 = &value;
+```
+
+### Mutable References
+
+```yoyo
+// Syntax: &mut Type
+data: mut i32 = 100;
+mut_ref: &mut i32 = &mut data;
+*mut_ref = 200; // Dereference to modify
+```
+
+<Note>
+Yoyo enforces borrow checking rules similar to Rust to prevent data races and memory safety issues.
+</Note>
+
+### Garbage Collected References
+
+GC pointers use the `^` syntax:
+
+```yoyo
+// Immutable GC reference
+node: ^Node::<T>;
+
+// Mutable GC reference
+mut_node: ^mut Node::<T>;
+```
+
+Create GC references using `gcnew`:
+
+```yoyo
+node := gcnew Node::<i32>{ .data = 42, .next = null };
+```
+
+## Optional Types
+
+Optional types represent values that may or may not exist:
+
+```yoyo
+// Syntax: Type?
+maybe_value: i32? = null;
+some_value: str? = "hello";
+```
+
+### Working with Optionals
+
+```yoyo
+opt: i32? = get_value();
+
+// Conditional extraction
+if |value| (opt) {
+    // value is unwrapped here
+    use_value(value);
+} else {
+    // opt was null
+}
+
+// Null propagation operator
+composite: Composite? = get_composite();
+the_val := composite?.value1; // Returns i32?
+```
+
+<Accordion title="Example: Optional in practice">
+```yoyo
+access_array_no_panic: fn (arr: inout [i32], idx: usize) -> (&i32)? = {
+    if (idx >= arr.size()) return null;
+    return &arr[idx];
+}
+
+main: fn = {
+    arr: mut = [10, 20, 30];
+    if |value| (access_array_no_panic(arr, 1)) {
+        // value is &i32 here
+    }
+}
+```
+</Accordion>
+
+## Function Types
+
+Functions are first-class values:
+
+```yoyo
+// Function type syntax: fn (ParamTypes...) -> ReturnType
+callback: fn (i32, i32) -> i32;
+
+// Assigning a function
+add: fn (a: i32, b: i32) -> i32 = {
+    return a + b;
+};
+```
+
+## Type Aliases
+
+Create type aliases for convenience:
+
+```yoyo
+MyInt: alias = i32;
+Callback: alias = fn (i32) -> void;
+Matrix: alias = [[f32; 4]; 4];
+```
+
+## Generic Types
+
+Types can be parameterized with generics:
+
+```yoyo
+// Generic struct
+Node: struct::<T> = {
+    data: T,
+    next: (^Node::<T>)?
+}
+
+// Generic function type  
+map_fn: fn::<T, U> (value: T) -> U;
+
+// Instantiating generics
+int_node: Node::<i32> = Node{ .data = 42, .next = null };
+str_node: Node::<str> = Node{ .data = "hello", .next = null };
+```
+
+## Special Internal Types
+
+These types are used internally by the compiler:
+
+```yoyo
+__tup      // Tuple type (internal)
+__opt      // Optional type (internal)
+__res      // Result type (internal)
+__var      // Variant/union type (internal)
+__fn       // Function type (internal)
+__ref_mut  // Mutable reference (internal)
+__lambda   // Lambda/closure type (internal)
+```
+
+<Note>
+You typically don't use these internal type names directly. They're created through syntax like `?` for optionals or `(T, U)` for tuples.
+</Note>
+
+## Type Inference
+
+Yoyo has powerful type inference:
+
+```yoyo
+// Type inferred as i32
+x := 42;
+
+// Type inferred from function return type
+result := calculate_value();
+
+// Type inferred from array elements
+numbers := [1, 2, 3, 4, 5]; // [i32]
+
+// Explicit type when needed
+value: i64 = 42; // Prevents inference as i32
+```
+
+## Type Conversions
+
+### Explicit Casting
+
+Use the `as` keyword for type conversions:
+
+```yoyo
+small: i32 = 42;
+large := small as i64;
+float_val := small as f32;
+
+// Pointer casting
+raw_ptr := value as ptr;
+```
+
+### Conversion Friction
+
+The type system tracks "conversion friction" - a measure of how different two types are. This helps with function overload resolution.
+
+## Ownership Types
+
+Structs and classes can have ownership specifiers:
+
+```yoyo
+// Owning type (default)
+MyStruct: struct = { };
+
+// Non-owning (reference-only) type
+MyView: struct:& = { };
+
+// Mutable non-owning type
+MyViewMut: struct:&mut = { };
+```
+
+<Accordion title="Example: Non-owning struct">
+```yoyo
+NonOwning: struct:& = {
+    view: [i32:&mut],
+    new: fn (arr: &mut [i32]) -> This = {
+        return This{ .view = arr.all() };
+    }
+}
+
+arr: mut = [10, 20, 30];
+no := NonOwning::new(&mut arr);
+```
+</Accordion>
+
+## Type Checking
+
+### Mutability Checking
+
+The type system tracks mutability:
+
+```yoyo
+x: i32 = 10;        // Immutable
+y: mut i32 = 20;    // Mutable
+
+// x = 15; // Error: cannot assign to immutable variable
+y = 25;    // OK
+```
+
+### Borrow Checking
+
+Yoyo enforces strict borrowing rules:
+
+```yoyo
+data: mut = [1, 2, 3];
+ref1 := &data;      // Immutable borrow
+// ref2 := &mut data; // Error: cannot borrow mutably while borrowed immutably
+```
+
+## Built-in Type Queries
+
+Check type properties at compile time:
+
+```yoyo
+// Check if type is primitive
+Type.is_primitive()
+
+// Check if type is integral
+Type.is_integral()
+
+// Check if type is floating point  
+Type.is_floating_point()
+
+// Check if type is trivially destructible
+Type.is_trivially_destructible()
+```

@@ -1,0 +1,460 @@
+---
+title: Memory Model
+description: Understanding Yoyo's memory management, ownership, and borrow checking
+---
+
+## Overview
+
+Yoyo features a sophisticated memory model inspired by Rust, combining static borrow checking with optional garbage collection. This ensures memory safety without runtime overhead in most cases.
+
+## Ownership System
+
+### Ownership Rules
+
+Yoyo enforces three fundamental ownership rules:
+
+1. Each value has a single owner
+2. When the owner goes out of scope, the value is dropped
+3. Values can be moved or borrowed, but not both simultaneously
+
+```yoyo
+// value is owned by x
+x := Vector2{ .x = 10, .y = 20 };
+
+// Ownership moved to y, x is now invalid
+y := x;
+
+// Error: x no longer owns the value
+// print(x.x);
+```
+
+### Ownership Types
+
+Types can specify their ownership semantics:
+
+<Tabs>
+  <Tab title="Owning">
+    ```yoyo
+    // Default - owns its data
+    MyStruct: struct = {
+        data: [i32]
+    }
+    ```
+  </Tab>
+  <Tab title="Non-Owning">
+    ```yoyo
+    // Non-owning - only holds references
+    MyView: struct:& = {
+        data: [i32:&]
+    }
+    ```
+  </Tab>
+  <Tab title="Non-Owning Mutable">
+    ```yoyo
+    // Non-owning mutable
+    MyViewMut: struct:&mut = {
+        data: [i32:&mut]
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## References and Borrowing
+
+### Immutable Borrows
+
+Immutable references allow reading but not modifying:
+
+```yoyo
+value: i32 = 42;
+ref1 := &value;  // Immutable borrow
+ref2 := &value;  // Multiple immutable borrows allowed
+
+result := *ref1 + *ref2;  // OK
+// *ref1 = 10;  // Error: cannot modify through immutable reference
+```
+
+### Mutable Borrows
+
+Mutable references allow modification:
+
+```yoyo
+data: mut i32 = 100;
+mut_ref := &mut data;
+*mut_ref = 200;  // OK - can modify
+```
+
+<Note>
+Only one mutable reference OR multiple immutable references can exist at a time.
+</Note>
+
+### Borrow Rules
+
+```yoyo
+value: mut = 42;
+
+// OK: Multiple immutable borrows
+ref1 := &value;
+ref2 := &value;
+
+// Error: Cannot borrow mutably while immutably borrowed
+// mut_ref := &mut value;
+```
+
+```yoyo
+data: mut = [1, 2, 3];
+
+// OK: Single mutable borrow
+mut_ref := &mut data;
+
+// Error: Cannot have multiple mutable borrows
+// mut_ref2 := &mut data;
+
+// Error: Cannot borrow immutably while mutably borrowed  
+// imm_ref := &data;
+```
+
+## Borrow Checker
+
+The borrow checker analyzes code at compile time to prevent:
+
+- **Use after move**: Accessing a value after ownership was transferred
+- **Use after free**: Accessing deallocated memory
+- **Data races**: Concurrent mutable access
+- **Dangling references**: References to deallocated memory
+
+### Borrow Checking Example
+
+```yoyo
+get_int: fn (a: &mut [i32], b: &[i32]) -> &mut i32 = {
+    return &mut a[0];
+};
+
+// Error: Cannot borrow 'a' mutably and immutably in same call
+// *get_int(a, a) = 400;
+//          ^  ^-- Immutable borrow
+//          └----- Mutable borrow
+```
+
+### Error Messages
+
+The borrow checker provides detailed error messages:
+
+```yoyo
+// Error: Cannot borrow 'a' immutably because it has been borrowed mutably
+// 18 | *get_int(a, a.0) = 400;
+//               ^  ^^^──────── Immutable borrow occurs here
+//               └───────────── Mutable borrow occurs here
+```
+
+## Lifetimes
+
+References have lifetimes that determine how long they're valid:
+
+```yoyo
+get_first: fn (arr: &[i32]) -> &i32 = {
+    return &arr[0];  // Lifetime tied to arr
+};
+
+// OK: arr lives long enough
+arr := [1, 2, 3];
+first := get_first(&arr);
+use(*first);
+
+// Error: Would create dangling reference
+// get_dangling: fn -> &i32 = {
+//     temp := 42;
+//     return &temp;  // Error: temp dies at end of function
+// };
+```
+
+## Garbage Collected References
+
+For cyclic data structures, Yoyo provides GC pointers:
+
+### GC Pointer Syntax
+
+```yoyo
+// Immutable GC pointer
+node: ^Node::<T>;
+
+// Mutable GC pointer
+mut_node: ^mut Node::<T>;
+```
+
+### Creating GC Values
+
+Use `gcnew` to allocate on the GC heap:
+
+```yoyo
+node := gcnew Node::<i32>{
+    .data = 42,
+    .next = null
+};
+```
+
+### When to Use GC Pointers
+
+<Accordion title="Cyclic data structures">
+```yoyo
+Node: struct::<T> = {
+    data: T,
+    next: (^Node::<T>)?  // GC pointer allows cycles
+}
+
+LinkedList: struct::<T> = {
+    first: (^Node::<T>)?,
+    
+    append: fn (&mut this, value: T) = {
+        // Create GC-allocated node
+        new_node := gcnew Node::<T>{ .data = value, .next = null };
+        // ... link it in
+    }
+}
+```
+</Accordion>
+
+<Accordion title="Tree structures">
+```yoyo
+TreeNode: struct::<T> = {
+    value: T,
+    left: (^TreeNode::<T>)?,
+    right: (^TreeNode::<T>)?
+}
+```
+</Accordion>
+
+## Move Semantics
+
+### Automatic Moves
+
+Values are moved by default:
+
+```yoyo
+v1 := Vector2{ .x = 10, .y = 20 };
+v2 := v1;  // v1 moved to v2, v1 is now invalid
+
+// Error: v1 was moved
+// use(v1);
+```
+
+### Explicit Copies
+
+Use `copy` when you need a duplicate:
+
+```yoyo
+arr: mut = [10, 20, 30];
+access(&copy arr, arr[0]);  // Copy arr for first argument
+```
+
+### Copy Types
+
+Small primitive types are copied automatically:
+
+```yoyo
+x: i32 = 42;
+y := x;  // Copied, not moved (i32 is Copy)
+use(x);  // OK - x is still valid
+```
+
+## Parameter Modes
+
+### In Parameters (default)
+
+Immutable borrow:
+
+```yoyo
+read_value: fn (x: &i32) = {
+    print("${*x}");
+};
+```
+
+### InOut Parameters
+
+Allows both reading and modifying:
+
+```yoyo
+access: fn (arr: inout [i32], idx: i32) -> &mut i32 = {
+    return &mut arr[idx];
+};
+
+// Error: Cannot use same variable mutably and immutably
+// access(arr, *access(arr, 0));
+```
+
+### Mutable References
+
+Explicit mutable borrow:
+
+```yoyo
+increment: fn (x: &mut i32) = {
+    *x = *x + 1;
+};
+
+value: mut = 10;
+increment(&mut value);
+```
+
+## Slices and Views
+
+### Array Slices
+
+Slices are non-owning views into arrays:
+
+```yoyo
+// Immutable slice
+view: [i32:&];
+
+// Mutable slice
+mut_view: [i32:&mut];
+```
+
+### Creating Slices
+
+```yoyo
+arr := [1, 2, 3, 4, 5];
+
+// Get slice of array
+slice := arr[1..4];  // Elements 1, 2, 3
+
+// Mutable slice
+arr_mut: mut = [10, 20, 30];
+mut_slice := &mut arr_mut[..];
+```
+
+## Destructors
+
+### Automatic Cleanup
+
+Types can have destructors for cleanup:
+
+```yoyo
+Resource: struct = {
+    handle: ptr,
+    
+    // Destructor (called when value is dropped)
+    drop: fn (&mut this) = {
+        close_handle(this.handle);
+    }
+}
+```
+
+### Trivially Destructible
+
+Types without destructors are trivially destructible:
+
+```yoyo
+// Trivially destructible - just primitive fields
+Point: struct = {
+    x: i32,
+    y: i32
+}
+```
+
+## Memory Safety Guarantees
+
+Yoyo's memory model prevents:
+
+<Tabs>
+  <Tab title="Use After Free">
+    ```yoyo
+    // Prevented by ownership tracking
+    x := allocate();
+    y := x;  // x moved
+    // use(x);  // Error: x was moved
+    ```
+  </Tab>
+  <Tab title="Data Races">
+    ```yoyo
+    // Prevented by borrow rules
+    data: mut = 42;
+    ref1 := &data;
+    // ref2 := &mut data;  // Error: already borrowed immutably
+    ```
+  </Tab>
+  <Tab title="Dangling Pointers">
+    ```yoyo
+    // Prevented by lifetime analysis
+    // get_ref: fn -> &i32 = {
+    //     temp := 42;
+    //     return &temp;  // Error: temp dies here
+    // };
+    ```
+  </Tab>
+  <Tab title="Null Pointer Dereference">
+    ```yoyo
+    // Prevented by optional types
+    opt: i32? = null;
+    // value := *opt;  // Error: must check first
+    
+    if |value| (opt) {
+        use(value);  // Safe - checked
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## With Statement for RAII
+
+The `with` statement enables RAII patterns:
+
+```yoyo
+with resource as Resource::acquire() {
+    // Use resource
+    resource.use();
+}  // resource.drop() called automatically
+```
+
+## Best Practices
+
+<Accordion title="Prefer borrowing over moving">
+```yoyo
+// Good - borrows data
+process: fn (data: &[i32]) = { };
+
+// Less flexible - takes ownership
+process: fn (data: [i32]) = { };
+```
+</Accordion>
+
+<Accordion title="Use GC pointers sparingly">
+```yoyo
+// Prefer regular references when possible
+use_ref: fn (node: &Node) = { };
+
+// Use GC pointers only for cycles/sharing
+use_gc: fn (node: ^Node) = { };
+```
+</Accordion>
+
+<Accordion title="Make mutability explicit">
+```yoyo
+// Clear intent - this modifies the value
+modify: fn (x: &mut i32) = { *x = 42; };
+
+// Clear intent - this only reads
+read: fn (x: &i32) = { print("${*x}"); };
+```
+</Accordion>
+
+## Example: Borrow Checking in Action
+
+```yoyo
+main: fn = {
+    arr: mut = [10, 20, 30];
+    
+    // OK: Single mutable borrow
+    first := &mut arr[0];
+    *first = 100;
+    
+    // OK: Borrow ended, can borrow again
+    second := &arr[1];
+    print("${*second}");
+    
+    // Error: Cannot borrow mutably and immutably
+    // process(&mut arr, &arr);
+    
+    // OK: Copy first argument to avoid conflict
+    process(&mut arr, &copy arr);
+}
+```

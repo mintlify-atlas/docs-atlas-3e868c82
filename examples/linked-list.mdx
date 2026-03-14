@@ -1,0 +1,315 @@
+---
+title: 'Linked List Implementation'
+description: 'A complete implementation of a generic linked list with iterators and iterator combinators'
+---
+
+## Overview
+
+This example demonstrates advanced features of Yoyo including:
+- Generic data structures with type parameters
+- Memory management with garbage-collected pointers
+- Iterator pattern implementation
+- Method syntax and associated functions
+- Optional types and pattern matching
+
+## Complete Code
+
+```yoyo
+app: module = APP
+
+Node: struct::<T> = {
+	data: T,
+	next: (^Node::<T>)?
+}
+LinkedList: struct::<T> = {
+	first: (^Node::<T>)?,
+	new: fn -> This = return This{ .first = null };
+	append: fn (&mut this, value: T) = {
+		if |val| (this.first) {
+			last: mut = val;
+			//implement options as truthy values and break
+			should_loop: mut = true;
+			while (should_loop) {
+				if |nxt| (last.next) last = nxt;
+				else should_loop = false;
+			}
+			last.next = gcnew Node::<T>{ .data = value, .next = null };
+		} else {
+			this.first = gcnew Node::<T>{ .data = value, .next = null };
+		}
+	}
+}
+LinkedListIterator: struct:&::<T> impl core::Iterator::<&T> = {
+	curr: (^Node::<T>)?,
+	impl core::Iterator::<&T>
+	{
+		next: fn (&mut this) -> (&T)? = {
+			if |node| (this.curr) {
+				this.curr = node.next;
+				return &node.data;
+			}
+			else return null;
+		}
+	}
+}
+
+EnumerateIter: struct:&::<T, O> impl core::Iterator::<(u64, O)> = {
+	actual_iter: T,
+	idx: u64,
+	impl core::Iterator::<(u64, O)> {
+		next: fn (&mut this) -> (u64, O)? = {
+			if |nxt| (this.actual_iter.core::Iterator::<O>::next()) {
+				this.idx = this.idx + 1;
+				return (this.idx, nxt);
+			}
+			else return null;
+		}
+	}
+}
+
+ChainIter: struct:&::<A, B, O> impl core::Iterator::<O> = 
+{
+	first_iter: A,
+	second_iter: B,
+	impl core::Iterator::<O> {
+		next: fn (&mut this) -> O? = {
+			if |nxt| (this.first_iter.core::Iterator::<O>::next()) return nxt;
+			else return this.second_iter.core::Iterator::<O>::next();
+		}
+	}		
+}
+iter: fn::<T> (list: &LinkedList::<T>) -> LinkedListIterator::<T>
+	= return LinkedListIterator::<T> { .curr = list.first };
+
+enumerate: fn::<T: impl core::Iterator::<O>, O> (iter: T) ->
+	EnumerateIter::<T, O> = return EnumerateIter::<T, O>{.actual_iter = iter, .idx = 0};
+
+chain: fn::<A: impl core::Iterator::<O>, B: impl core::Iterator::<O>, O> 
+	(first: A, snd: B) -> ChainIter::<A, B, O> = return ChainIter::<A, B, O>{.first_iter = first, .second_iter = snd};
+main: fn = {
+	a: mut = LinkedList::<str>::new();
+	a.append("Hello");
+	a.append("World");
+	a.append("Stuff");
+	a.append("Others");
+	b: mut = LinkedList::<str>::new();
+	b.append("Second List");
+	b.append("Second List Again");
+	for (lol in a.iter().chain(b.iter()).enumerate()) {
+		app::func(&"${lol.0}: ${*lol.1}");
+	}
+}
+```
+
+## Breaking Down the Implementation
+
+<Steps>
+  <Step title="Define the Node Structure">
+    The `Node` struct is the building block of the linked list:
+    
+    ```yoyo
+    Node: struct::<T> = {
+        data: T,
+        next: (^Node::<T>)?
+    }
+    ```
+    
+    - **Generic type parameter** `<T>` allows the node to hold any data type
+    - **`data: T`** stores the actual value
+    - **`next: (^Node::<T>)?`** is an optional pointer to the next node
+      - `^` denotes a garbage-collected pointer
+      - `?` makes it optional (can be `null`)
+  </Step>
+
+  <Step title="Create the LinkedList Structure">
+    The main linked list structure with methods:
+    
+    ```yoyo
+    LinkedList: struct::<T> = {
+        first: (^Node::<T>)?,
+        new: fn -> This = return This{ .first = null };
+        append: fn (&mut this, value: T) = { ... }
+    }
+    ```
+    
+    <Accordion title="Understanding the 'new' constructor">
+      ```yoyo
+      new: fn -> This = return This{ .first = null };
+      ```
+      
+      - Returns `This` (refers to the enclosing struct type)
+      - Initializes an empty list with `first` set to `null`
+      - Associated function (no `this` parameter)
+    </Accordion>
+  </Step>
+
+  <Step title="Implement the Append Method">
+    The `append` method adds elements to the end of the list:
+    
+    ```yoyo
+    append: fn (&mut this, value: T) = {
+        if |val| (this.first) {
+            last: mut = val;
+            should_loop: mut = true;
+            while (should_loop) {
+                if |nxt| (last.next) last = nxt;
+                else should_loop = false;
+            }
+            last.next = gcnew Node::<T>{ .data = value, .next = null };
+        } else {
+            this.first = gcnew Node::<T>{ .data = value, .next = null };
+        }
+    }
+    ```
+    
+    <Note>
+      **Pattern Matching with Optionals**: The syntax `if |val| (this.first)` unwraps the optional. If `this.first` contains a value, it's bound to `val` and the block executes.
+    </Note>
+    
+    **How it works:**
+    1. If the list is empty (`first` is `null`), create the first node
+    2. Otherwise, traverse to the last node
+    3. Use `gcnew` to allocate a new garbage-collected node
+    4. Attach the new node to the end
+  </Step>
+
+  <Step title="Build the Iterator">
+    The iterator allows traversing the list:
+    
+    ```yoyo
+    LinkedListIterator: struct:&::<T> impl core::Iterator::<&T> = {
+        curr: (^Node::<T>)?,
+        impl core::Iterator::<&T> {
+            next: fn (&mut this) -> (&T)? = {
+                if |node| (this.curr) {
+                    this.curr = node.next;
+                    return &node.data;
+                }
+                else return null;
+            }
+        }
+    }
+    ```
+    
+    - **`struct:&`** indicates this is a reference-only struct
+    - **`impl core::Iterator::<&T>`** implements the Iterator trait
+    - **`next()`** returns references to data, advancing the iterator
+  </Step>
+
+  <Step title="Add Iterator Combinators">
+    <Accordion title="Enumerate Iterator">
+      Adds indices to iterator values:
+      
+      ```yoyo
+      EnumerateIter: struct:&::<T, O> impl core::Iterator::<(u64, O)> = {
+          actual_iter: T,
+          idx: u64,
+          impl core::Iterator::<(u64, O)> {
+              next: fn (&mut this) -> (u64, O)? = {
+                  if |nxt| (this.actual_iter.core::Iterator::<O>::next()) {
+                      this.idx = this.idx + 1;
+                      return (this.idx, nxt);
+                  }
+                  else return null;
+              }
+          }
+      }
+      ```
+      
+      Returns tuples of `(index, value)` for each element.
+    </Accordion>
+    
+    <Accordion title="Chain Iterator">
+      Chains two iterators together:
+      
+      ```yoyo
+      ChainIter: struct:&::<A, B, O> impl core::Iterator::<O> = {
+          first_iter: A,
+          second_iter: B,
+          impl core::Iterator::<O> {
+              next: fn (&mut this) -> O? = {
+                  if |nxt| (this.first_iter.core::Iterator::<O>::next()) return nxt;
+                  else return this.second_iter.core::Iterator::<O>::next();
+              }
+          }
+      }
+      ```
+      
+      First exhausts the first iterator, then moves to the second.
+    </Accordion>
+  </Step>
+
+  <Step title="Use the Linked List">
+    Example usage demonstrating iterator chaining:
+    
+    ```yoyo
+    main: fn = {
+        a: mut = LinkedList::<str>::new();
+        a.append("Hello");
+        a.append("World");
+        a.append("Stuff");
+        a.append("Others");
+        
+        b: mut = LinkedList::<str>::new();
+        b.append("Second List");
+        b.append("Second List Again");
+        
+        for (lol in a.iter().chain(b.iter()).enumerate()) {
+            app::func(&"${lol.0}: ${*lol.1}");
+        }
+    }
+    ```
+    
+    **Output:**
+    ```
+    1: Hello
+    2: World
+    3: Stuff
+    4: Others
+    5: Second List
+    6: Second List Again
+    ```
+  </Step>
+</Steps>
+
+## Key Concepts Demonstrated
+
+<AccordionGroup>
+  <Accordion title="Generics">
+    The linked list works with any type through the generic parameter `<T>`:
+    ```yoyo
+    LinkedList::<str>::new()  // List of strings
+    LinkedList::<i32>::new()  // List of integers
+    ```
+  </Accordion>
+  
+  <Accordion title="Memory Management">
+    Yoyo uses garbage-collected pointers (`^`) for automatic memory management:
+    ```yoyo
+    gcnew Node::<T>{ .data = value, .next = null }
+    ```
+    No manual memory deallocation needed.
+  </Accordion>
+  
+  <Accordion title="Optional Types">
+    The `?` suffix creates optional types that can be `null`:
+    ```yoyo
+    next: (^Node::<T>)?  // Can be a pointer or null
+    ```
+    Pattern matching with `if |var| (optional)` safely unwraps values.
+  </Accordion>
+  
+  <Accordion title="Trait Implementation">
+    Iterators implement the `core::Iterator` trait:
+    ```yoyo
+    impl core::Iterator::<&T> {
+        next: fn (&mut this) -> (&T)? = { ... }
+    }
+    ```
+    This enables use in `for` loops and iterator combinators.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  This example showcases Yoyo's ability to build complex, composable abstractions with zero-cost iterator patterns similar to Rust.
+</Note>

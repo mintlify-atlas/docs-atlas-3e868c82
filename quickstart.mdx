@@ -1,80 +1,170 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with Yoyo in minutes
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide will help you write and run your first Yoyo program.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Make sure you've completed the [installation](/installation) steps before continuing.
 </Note>
+
+## Your First Yoyo Program
+
+Let's start with a simple "Hello, World!" program.
+
+<Steps>
+  <Step title="Create a Yoyo source file">
+    Create a file called `hello.yoyo` with the following content:
+    
+    ```yoyo hello.yoyo
+    main: fn = {
+        "Hello, World!".test::print();
+    }
+    ```
+    
+    This program defines a `main` function that prints a greeting.
+  </Step>
+  
+  <Step title="Create a C++ host application">
+    Create a C++ file to host the Yoyo engine:
+    
+    ```cpp main.cpp
+    #include <engine.h>
+    #include <parser.h>
+    #include <fstream>
+    #include <sstream>
+    
+    // Choose your backend
+    #ifdef USE_LLVM
+    #include <llvm/llvm_engine.h>
+    using EngineType = Yoyo::LLVM::LLVMEngine;
+    #else
+    #include <yvm/yvm_engine.h>
+    using EngineType = Yoyo::YVM::YVMEngine;
+    #endif
+    
+    int main() {
+        // Read source file
+        std::ifstream file("hello.yoyo");
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string source = buffer.str();
+        
+        // Create engine
+        EngineType engine;
+        
+        // Parse source code
+        Yoyo::Parser parser(source);
+        auto statements = parser.parseProgram();
+        
+        if (parser.failed()) {
+            std::cerr << "Parse failed!" << std::endl;
+            return 1;
+        }
+        
+        // Add source to engine
+        engine.sources["main"] = {"hello.yoyo", std::move(statements)};
+        
+        // Compile and run
+        engine.execute();
+        
+        return 0;
+    }
+    ```
+  </Step>
+  
+  <Step title="Compile and run">
+    Build your application with Meson or your preferred build system:
+    
+    ```bash
+    g++ -std=c++20 main.cpp -lyoyo -o hello
+    ./hello
+    ```
+    
+    You should see:
+    ```
+    Hello, World!
+    ```
+  </Step>
+</Steps>
+
+## Working with Variables
+
+Yoyo supports type inference with the `:=` operator:
+
+```yoyo
+main: fn = {
+    // Type inference
+    name := "Yoyo";
+    version := 1;
+    
+    // String interpolation
+    "Language: ${name} v${version}".test::print();
+}
+```
+
+## Defining Functions
+
+Functions use the `name: fn = body` syntax:
+
+```yoyo
+add: fn (a: i32, b: i32) -> i32 = {
+    return a + b;
+}
+
+// Single-expression functions can omit braces
+square: fn (x: i32) -> i32 = return x * x;
+
+main: fn = {
+    result := add(5, 3);
+    "5 + 3 = ${result}".test::print();
+}
+```
+
+## Creating Structs
+
+Yoyo supports structs with methods:
+
+```yoyo
+Point: struct = {
+    x: i32,
+    y: i32,
+    
+    // Constructor
+    new: fn (x: i32, y: i32) -> Point = {
+        return Point{ .x = x, .y = y };
+    }
+    
+    // Method
+    distance: fn (&this) -> f64 = {
+        dx := this.x * this.x;
+        dy := this.y * this.y;
+        return (dx + dy).sqrt();
+    }
+}
+
+main: fn = {
+    p := Point::new(3, 4);
+    "Distance: ${p.distance()}".test::print();
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Language Guide" icon="book" href="/language/syntax">
+    Learn Yoyo's syntax and features
+  </Card>
+  <Card title="Embedding Guide" icon="code" href="/embedding/overview">
+    Integrate Yoyo into your C++ application
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/examples/linked-list">
+    Explore complete example programs
+  </Card>
+  <Card title="API Reference" icon="file-code" href="/api/engine">
+    Browse the C++ API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,137 @@
+---
+title: Embedding Overview
+description: Learn how to embed the Yoyo programming language in your C++20 applications
+---
+
+Yoyo is designed to be embeddable in C++20 applications, allowing you to use Yoyo as a scripting language or extend your application with dynamic behavior. The embedding API provides a clean interface for parsing, compiling, and executing Yoyo code from your C++ programs.
+
+## Architecture
+
+The Yoyo embedding system is built around three core components:
+
+<CardGroup cols={3}>
+  <Card title="Engine" icon="gear">
+    The execution environment that manages modules, compilation, and runtime
+  </Card>
+  <Card title="Parser" icon="code">
+    Converts Yoyo source code into an Abstract Syntax Tree (AST)
+  </Card>
+  <Card title="Modules" icon="cube">
+    Containers for code that can expose C++ functions to Yoyo and vice versa
+  </Card>
+</CardGroup>
+
+## Backend Options
+
+Yoyo supports two execution backends that can be selected at build time:
+
+<AccordionGroup>
+  <Accordion title="LLVM Backend" icon="bolt">
+    Uses LLVM for JIT compilation and execution. Provides excellent performance and optimization capabilities.
+    
+    - **Best for**: Production deployments, performance-critical applications
+    - **Requirements**: LLVM dependency
+    - **Class**: `Yoyo::LLVMEngine`
+  </Accordion>
+  
+  <Accordion title="YVM Backend" icon="microchip">
+    Uses Yoyo's custom virtual machine. Lighter weight and faster compilation times.
+    
+    - **Best for**: Development, embedded systems, quick iteration
+    - **Requirements**: yoyo-vm subproject, libffi
+    - **Class**: `Yoyo::YVMEngine`
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  The backend is selected at build time using the `executor` meson option. You can build with both backends enabled by setting `executor=both`.
+</Note>
+
+## Key Features
+
+### Bidirectional Interop
+
+Call C++ functions from Yoyo code and Yoyo functions from C++:
+
+```cpp
+// Add C++ function to Yoyo module
+auto* module = engine.addAppModule("myapp");
+module->addFunction("fn(x: i32) -> i32", &myCppFunction, "myFunction");
+
+// Call Yoyo function from C++
+auto fn = engine.findFunction(module, "yoyoFunction");
+Fiber fiber = engine.createFiber(fn.value());
+```
+
+### Module System
+
+Organize code into logical modules with proper encapsulation:
+
+```cpp
+engine.addModule("math", R"(
+  pub fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+  }
+)");
+```
+
+### Runtime Management
+
+Built-in coroutine-based runtime for concurrent execution:
+
+```cpp
+engine.execute();  // Run all fibers to completion
+engine.sleep(std::chrono::seconds(1));  // Sleep utilities
+```
+
+## Quick Example
+
+Here's a minimal embedding example:
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>  // or yvm/yvm_engine.h
+#include <iostream>
+
+int32_t multiply(int32_t a, int32_t b) {
+    return a * b;
+}
+
+int main() {
+    Yoyo::LLVMEngine engine;  // or YVMEngine
+    
+    // Create application module
+    auto* app = engine.addAppModule("app");
+    app->addFunction("fn(a: i32, b: i32) -> i32", &multiply, "multiply");
+    
+    // Add Yoyo source code
+    engine.addModule("main", R"(
+        import app;
+        
+        pub fn main() {
+            let result = app.multiply(6, 7);
+            print(result);
+        }
+    )");
+    
+    // Compile and execute
+    engine.compile();
+    engine.prepareForExecution();
+    engine.execute();
+    
+    return 0;
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Engine Setup" icon="rocket" href="/embedding/engine-setup">
+    Learn how to initialize and configure the Yoyo engine
+  </Card>
+  <Card title="Module Integration" icon="puzzle-piece" href="/embedding/modules">
+    Expose C++ functions and types to Yoyo
+  </Card>
+  <Card title="Backend Selection" icon="toggle-on" href="/embedding/backends">
+    Choose and configure the right backend
+  </Card>
+</CardGroup>

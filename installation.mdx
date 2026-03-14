@@ -1,0 +1,232 @@
+---
+title: Installation
+description: Build Yoyo from source using Meson
+---
+
+Yoyo is a statically typed research language written in C++20. This guide will walk you through building Yoyo from source.
+
+<Warning>
+  This implementation is very far from useful and is under active development.
+</Warning>
+
+## Prerequisites
+
+Before building Yoyo, ensure you have the following dependencies installed:
+
+### Required Dependencies
+
+<Steps>
+  <Step title="C++ Compiler">
+    A C++20 compatible compiler (GCC 10+, Clang 12+, or MSVC 2019+)
+  </Step>
+  
+  <Step title="Meson Build System">
+    Meson 0.55.0 or later
+    ```bash
+    pip install meson
+    ```
+  </Step>
+  
+  <Step title="Ninja">
+    Ninja build tool
+    ```bash
+    # Ubuntu/Debian
+    sudo apt install ninja-build
+    
+    # macOS
+    brew install ninja
+    
+    # Arch Linux
+    sudo pacman -S ninja
+    ```
+  </Step>
+  
+  <Step title="Boehm GC">
+    The Boehm-Demers-Weiser garbage collector (bdw-gc)
+    ```bash
+    # Ubuntu/Debian
+    sudo apt install libgc-dev
+    
+    # macOS
+    brew install bdw-gc
+    
+    # Arch Linux
+    sudo pacman -S gc
+    ```
+  </Step>
+</Steps>
+
+### Optional Dependencies
+
+#### For LLVM Backend
+
+If you want to use the LLVM execution backend, install LLVM development libraries:
+
+```bash
+# Ubuntu/Debian
+sudo apt install llvm-dev
+
+# macOS
+brew install llvm
+
+# Arch Linux
+sudo pacman -S llvm
+```
+
+#### For YVM Backend (Default)
+
+The YVM backend requires:
+- **libffi**: Foreign function interface library
+- **yoyo-vm**: Submodule included in the repository
+
+```bash
+# Ubuntu/Debian
+sudo apt install libffi-dev
+
+# macOS
+brew install libffi
+
+# Arch Linux
+sudo pacman -S libffi
+```
+
+#### For Testing
+
+To run the test suite, you'll need Catch2:
+
+```bash
+# Ubuntu/Debian
+sudo apt install catch2
+
+# macOS
+brew install catch2
+
+# Arch Linux
+sudo pacman -S catch2
+```
+
+## Build Instructions
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the Yoyo repository with its submodules:
+    ```bash
+    git clone --recursive https://github.com/Git-i/yoyo-lang.git
+    cd yoyo-lang
+    ```
+    
+    If you already cloned without `--recursive`, initialize the submodules:
+    ```bash
+    git submodule update --init --recursive
+    ```
+  </Step>
+  
+  <Step title="Configure the Build">
+    Set up the build directory with Meson. You can choose your execution backend:
+    
+    <CodeGroup>
+    ```bash YVM Backend (Default)
+    meson setup build -Dexecutor=yvm
+    ```
+    
+    ```bash LLVM Backend
+    meson setup build -Dexecutor=llvm
+    ```
+    
+    ```bash Both Backends
+    meson setup build -Dexecutor=both
+    ```
+    </CodeGroup>
+    
+    <Note>
+      The YVM backend is the default and recommended option for most users.
+    </Note>
+  </Step>
+  
+  <Step title="Compile">
+    Build the project using Ninja:
+    ```bash
+    meson compile -C build
+    ```
+    
+    This will compile the Yoyo library and test executables.
+  </Step>
+  
+  <Step title="Run Tests (Optional)">
+    Verify the build by running the test suite:
+    ```bash
+    meson test -C build
+    ```
+  </Step>
+</Steps>
+
+## Build Configuration Options
+
+Yoyo's build can be customized with the following Meson options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `executor` | choice | `yvm` | Execution backend: `llvm`, `yvm`, or `both` |
+| `llvm_static` | boolean | `true` | Link LLVM statically when using LLVM backend |
+| `default_library` | choice | `static` | Build as `static` or `shared` library |
+
+Set options during configuration:
+
+```bash
+meson setup build -Dexecutor=both -Dllvm_static=false
+```
+
+## Build Output
+
+After a successful build, you'll find:
+
+- **Library**: `build/libyoyo.a` (or `.so`/`.dll` for shared builds)
+- **Test executable**: `build/ir_gen_test`
+
+The library includes the scanner, parser, type checker, borrow checker, and code generation components.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Missing bdw-gc dependency">
+    If you encounter errors about missing `gc.h`:
+    
+    ```bash
+    # Find the package name for your system
+    apt-cache search libgc    # Debian/Ubuntu
+    brew search gc            # macOS
+    pacman -Ss gc            # Arch
+    ```
+    
+    Ensure you install the development package (usually ends in `-dev` or `-devel`).
+  </Accordion>
+  
+  <Accordion title="LLVM version mismatch">
+    Yoyo requires LLVM 10 or later. Check your version:
+    
+    ```bash
+    llvm-config --version
+    ```
+    
+    If you have multiple versions installed, specify the version:
+    ```bash
+    meson setup build -Dexecutor=llvm -Dpkg_config_path=/usr/lib/llvm-15/lib/pkgconfig
+    ```
+  </Accordion>
+  
+  <Accordion title="Submodule initialization failed">
+    If submodules aren't properly initialized:
+    
+    ```bash
+    git submodule update --init --recursive --remote
+    ```
+    
+    The required submodules are:
+    - `subprojects/yoyo-vm`: The VM execution backend
+    - `subprojects/minicoro`: Coroutine library
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that you have Yoyo built, continue to the [Quickstart Guide](/quickstart) to write your first Yoyo program.

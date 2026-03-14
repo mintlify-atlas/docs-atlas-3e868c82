@@ -1,0 +1,94 @@
+---
+title: Introduction
+description: Embeddable JIT-compiled memory-safe scripting language for C++20
+---
+
+# Welcome to Yoyo
+
+Yoyo is a statically typed, memory-safe scripting language designed to be embedded in C++20 applications. With JIT compilation and a modern syntax inspired by cppfront, Yoyo brings safety and performance to embedded scripting.
+
+<Note>
+  This implementation is currently in early development and is not yet production-ready.
+</Note>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Memory Safety" icon="shield-check">
+    Built-in borrow checker ensures memory safety at compile time
+  </Card>
+  <Card title="JIT Compilation" icon="bolt">
+    Choose between LLVM and YVM backends for optimized execution
+  </Card>
+  <Card title="Static Typing" icon="code">
+    Type inference and generic support for robust code
+  </Card>
+  <Card title="Modern Syntax" icon="sparkles">
+    Clean, expressive syntax inspired by cppfront
+  </Card>
+  <Card title="Embeddable" icon="cube">
+    Designed to integrate seamlessly into C++20 applications
+  </Card>
+  <Card title="Operator Overloading" icon="function">
+    Full support for custom operators and iterators
+  </Card>
+</CardGroup>
+
+## Quick Example
+
+Here's a simple Yoyo program demonstrating the language's syntax:
+
+```yoyo
+// Define a struct with methods
+Vector2: struct = {
+    x: u32,
+    y: u32,
+    
+    add: fn (&this, other: &Vector2) -> Vector2 = {
+        return Vector2{ .x = this.x + other.x, .y = this.y + other.y };
+    }
+}
+
+// Main function
+main: fn = {
+    a := Vector2{ .x = 10, .y = 20 };
+    b := Vector2{ .x = 5, .y = 15 };
+    result := a.add(&b);
+    
+    "Result: ${result.x}, ${result.y}".test::print();
+}
+```
+
+## Design Philosophy
+
+Yoyo's design focuses on three core principles:
+
+- **Safety First**: Memory safety through borrow checking, preventing common bugs at compile time
+- **Performance**: JIT compilation for near-native execution speeds
+- **Developer Experience**: Modern syntax that's both expressive and easy to learn
+
+## Use Cases
+
+Yoyo is ideal for:
+
+- **Game Scripting**: Embed safe, fast scripts in C++ game engines
+- **Application Extensions**: Allow users to extend your C++ application with custom logic
+- **Configuration**: Complex configuration that goes beyond static files
+- **Hot Reloading**: Update application logic without recompilation
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get Yoyo set up in your project
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Write your first Yoyo program
+  </Card>
+  <Card title="Language Guide" icon="book" href="/language/syntax">
+    Learn the Yoyo language
+  </Card>
+  <Card title="Embedding Guide" icon="code" href="/embedding/overview">
+    Integrate Yoyo into C++ applications
+  </Card>
+</CardGroup>

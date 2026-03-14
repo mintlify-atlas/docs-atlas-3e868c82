@@ -1,0 +1,418 @@
+---
+title: Module System
+description: Create application modules and expose C++ functions and types to Yoyo
+---
+
+Modules are the primary way to organize code and enable interoperability between C++ and Yoyo. This guide covers how to create application modules that expose C++ functionality to your Yoyo scripts.
+
+## Module Types
+
+Yoyo has two types of modules:
+
+<CardGroup cols={2}>
+  <Card title="Source Modules" icon="code">
+    Contains Yoyo source code added via `engine.addModule()`
+  </Card>
+  <Card title="Application Modules" icon="cube">
+    Exposes C++ functions, classes, and enums to Yoyo via `engine.addAppModule()`
+  </Card>
+</CardGroup>
+
+This page focuses on **Application Modules**, which enable C++ interop.
+
+## ModuleBase Class
+
+All modules inherit from `ModuleBase`:
+
+```cpp include/yoyo/module.h
+namespace Yoyo {
+    class ModuleBase {
+    public:
+        struct FunctionDetails {
+            std::string name;
+            FunctionSignature sig;
+            std::vector<Attribute> attributes;
+            bool is_private() const;
+        };
+        
+        virtual ~ModuleBase() = default;
+        
+        ModuleOverloadDetails overloads;
+        Engine* engine;
+        std::unordered_map<std::string, ModuleBase*> modules;
+        std::string module_hash;
+        
+        std::unordered_map<std::string, std::vector<FunctionDetails>> functions;
+        std::unordered_map<std::string, std::vector<std::pair<std::string, std::unique_ptr<ClassDeclaration>>>> classes;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<UnionDeclaration>>> unions;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericFunctionDeclaration>>> generic_fns;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<InterfaceDeclaration>>> interfaces;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericAliasDeclaration>>> generic_aliases;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericInterfaceDeclaration>>> generic_interfaces;
+        std::unordered_map<std::string, std::unordered_map<std::string, Type>> aliases;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<GenericClassDeclaration>>> generic_classes;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<EnumDeclaration>>> enums;
+        std::unordered_map<std::string, std::vector<std::tuple<Type, std::string, std::variant<Constant, ConstantDeclaration*>>>> constants;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<UnionDeclaration>>> generic_unions;
+        std::unordered_map<std::string, std::vector<std::unique_ptr<MacroDeclaration>>> macros;
+        
+        // Lookup functions
+        std::pair<std::string, FunctionDetails*> findFunction(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericFunctionDeclaration*> findGenericFn(const std::string& block, const std::string& name);
+        Type* findAlias(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericAliasDeclaration*> findGenericAlias(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericClassDeclaration*> findGenericClass(const std::string& block, const std::string& name);
+        std::pair<std::string, InterfaceDeclaration*> findInterface(const std::string& block, const std::string& name);
+        std::pair<std::string, GenericInterfaceDeclaration*> findGenericInterface(const std::string& block, const std::string& name);
+        std::pair<std::string, EnumDeclaration*> findEnum(const std::string& block, const std::string& name);
+        MacroDeclaration* findMacro(const std::string& block, const std::string& name);
+        std::pair<std::string, UnionDeclaration*> findUnion(const std::string& block, const std::string& name);
+        std::pair<std::string, std::pair<std::string, std::unique_ptr<ClassDeclaration>>*> findClass(const std::string& block, const std::string& name);
+        std::pair<std::string, std::tuple<Type, std::string, std::variant<Constant, ConstantDeclaration*>>*> findConst(const std::string& block, const std::string& name);
+        std::optional<std::string> hashOf(const std::string& base_block, const std::string& name);
+    };
+}
+```
+
+## Creating Application Modules
+
+Application modules are created using the engine's `addAppModule` method:
+
+<CodeGroup>
+```cpp LLVM Engine
+#include <yoyo/llvm/llvm_engine.h>
+
+Yoyo::LLVMEngine engine;
+auto* module = engine.addAppModule("mylib");
+// Returns LLVMAppModule*
+```
+
+```cpp YVM Engine
+#include <yoyo/yvm/yvm_engine.h>
+
+Yoyo::YVMEngine engine;
+auto* module = engine.addAppModule("mylib");
+// Returns YVMAppModule*
+```
+</CodeGroup>
+
+<Note>
+  The module name is used for imports in Yoyo code: `import mylib;`
+</Note>
+
+## Adding Functions
+
+The `addFunction` method exposes C++ functions to Yoyo:
+
+### Function Signature
+
+```cpp
+template<typename R, typename... Args>
+Result addFunction(
+    std::string sig_str,      // Yoyo function signature
+    R(*func)(Args...),        // C++ function pointer
+    std::string name          // Function name in Yoyo
+);
+```
+
+### Return Values
+
+The method returns a `Result` enum:
+
+<ResponseField name="Result" type="enum">
+  <Expandable title="values">
+    <ResponseField name="Success" type="enum value">
+      Function was added successfully
+    </ResponseField>
+    <ResponseField name="NullParameter" type="enum value">
+      The function pointer was nullptr
+    </ResponseField>
+    <ResponseField name="InvalidSignature" type="enum value">
+      The Yoyo signature string failed to parse
+    </ResponseField>
+    <ResponseField name="ParameterCountMismatch" type="enum value">
+      The number of parameters doesn't match the C++ function
+    </ResponseField>
+    <ResponseField name="ReturnTypeMismatch" type="enum value">
+      The return type doesn't match (usually with sret)
+    </ResponseField>
+    <ResponseField name="ParameterTypeMismatch" type="enum value">
+      Parameter types are incompatible
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Basic Example
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>
+
+// C++ function to expose
+int32_t add(int32_t a, int32_t b) {
+    return a + b;
+}
+
+int main() {
+    Yoyo::LLVMEngine engine;
+    auto* math = engine.addAppModule("math");
+    
+    auto result = math->addFunction(
+        "fn(a: i32, b: i32) -> i32",  // Yoyo signature
+        &add,                           // Function pointer
+        "add"                           // Name in Yoyo
+    );
+    
+    if (result != Yoyo::Result::Success) {
+        std::cerr << "Failed to add function\n";
+        return 1;
+    }
+    
+    // Now callable from Yoyo: math.add(5, 3)
+    return 0;
+}
+```
+
+### Type Mapping
+
+Map C++ types to Yoyo types in the signature:
+
+| C++ Type | Yoyo Type | Notes |
+|----------|-----------|-------|
+| `int8_t` | `i8` | Signed 8-bit |
+| `int16_t` | `i16` | Signed 16-bit |
+| `int32_t` | `i32` | Signed 32-bit |
+| `int64_t` | `i64` | Signed 64-bit |
+| `uint8_t` | `u8` | Unsigned 8-bit |
+| `uint16_t` | `u16` | Unsigned 16-bit |
+| `uint32_t` | `u32` | Unsigned 32-bit |
+| `uint64_t` | `u64` | Unsigned 64-bit |
+| `float` | `f32` | 32-bit float |
+| `double` | `f64` | 64-bit float |
+| `bool` | `bool` | Boolean |
+| `void` | `void` | No return value |
+| `void*` | `str` / custom | String or custom types |
+
+### Multiple Functions Example
+
+```cpp
+int32_t add(int32_t a, int32_t b) { return a + b; }
+int32_t subtract(int32_t a, int32_t b) { return a - b; }
+int32_t multiply(int32_t a, int32_t b) { return a * b; }
+float divide(float a, float b) { return a / b; }
+
+Yoyo::LLVMEngine engine;
+auto* math = engine.addAppModule("math");
+
+math->addFunction("fn(a: i32, b: i32) -> i32", &add, "add");
+math->addFunction("fn(a: i32, b: i32) -> i32", &subtract, "subtract");
+math->addFunction("fn(a: i32, b: i32) -> i32", &multiply, "multiply");
+math->addFunction("fn(a: f32, b: f32) -> f32", &divide, "divide");
+
+// Use in Yoyo:
+// import math;
+// let result = math.add(10, 5);
+```
+
+## Adding Enums
+
+Expose C++ enums to Yoyo:
+
+```cpp
+auto* module = engine.addAppModule("app");
+
+auto result = module->addEnum("Status", {
+    {"Ok", 0},
+    {"Error", 1},
+    {"Pending", 2}
+});
+
+if (result != Yoyo::Result::Success) {
+    // Handle error
+}
+```
+
+<Warning>
+  Returns `Result::DuplicateEnumValue` if the same value is used for multiple enum members.
+</Warning>
+
+Usage in Yoyo:
+
+```yoyo
+import app;
+
+let status = app.Status.Ok;
+if status == app.Status.Error {
+    print("Error!");
+}
+```
+
+## Adding Classes
+
+Expose C++ class structures to Yoyo:
+
+```cpp
+#include <yoyo/class_entry.h>
+
+auto* module = engine.addAppModule("app");
+
+std::vector<ClassVariable> fields = {
+    {"x", /* Type info */, /* offset */, /* ownership */},
+    {"y", /* Type info */, /* offset */, /* ownership */}
+};
+
+auto result = module->addClass(
+    "Point",           // Class name
+    fields,            // Field definitions
+    Ownership::Owned,  // Ownership semantics
+    ""                 // Block hash (optional)
+);
+```
+
+<Note>
+  Class integration is more complex than functions and requires understanding of Yoyo's type system. See the `class_entry.h` header for `ClassVariable` structure details.
+</Note>
+
+## Using Modules in Yoyo
+
+Once you've added an application module, import it in your Yoyo code:
+
+```cpp
+engine.addAppModule("myapp");
+// ... add functions ...
+
+engine.addModule("main", R"(
+    import myapp;
+    
+    pub fn main() {
+        let result = myapp.someFunction(42);
+        print(result);
+    }
+)");
+```
+
+## Complete Example
+
+Here's a complete example with multiple features:
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>
+#include <iostream>
+#include <cmath>
+
+// Math functions
+float square_root(float x) { return std::sqrt(x); }
+float power(float base, float exp) { return std::pow(base, exp); }
+int32_t abs_val(int32_t x) { return std::abs(x); }
+
+int main() {
+    Yoyo::LLVMEngine engine;
+    
+    // Create math module
+    auto* math = engine.addAppModule("math");
+    
+    // Add functions
+    if (math->addFunction("fn(x: f32) -> f32", &square_root, "sqrt") != Yoyo::Result::Success) {
+        std::cerr << "Failed to add sqrt\n";
+        return 1;
+    }
+    
+    math->addFunction("fn(base: f32, exp: f32) -> f32", &power, "pow");
+    math->addFunction("fn(x: i32) -> i32", &abs_val, "abs");
+    
+    // Add enum
+    math->addEnum("Precision", {
+        {"Low", 0},
+        {"Medium", 1},
+        {"High", 2}
+    });
+    
+    // Add Yoyo source that uses the module
+    engine.addModule("main", R"(
+        import math;
+        
+        pub fn main() {
+            let root = math.sqrt(16.0);
+            let pow_result = math.pow(2.0, 8.0);
+            let abs_result = math.abs(-42);
+            
+            print(root);        // 4.0
+            print(pow_result);  // 256.0
+            print(abs_result);  // 42
+            
+            let precision = math.Precision.High;
+        }
+    )");
+    
+    // Compile and execute
+    engine.compile();
+    engine.prepareForExecution();
+    engine.execute();
+    
+    return 0;
+}
+```
+
+## Parser Integration
+
+Application modules use the `Parser` class internally to parse function signatures:
+
+```cpp include/yoyo/parser.h
+namespace Yoyo {
+    class YOYO_API Parser {
+    public:
+        explicit Parser(std::string& source);
+        std::optional<FunctionSignature> parseFunctionSignature();
+        bool failed() const { return has_error; }
+        // ... more methods
+    };
+}
+```
+
+The `addFunction` method automatically:
+1. Creates a `Parser` with your signature string
+2. Calls `parseFunctionSignature()`
+3. Checks for parse errors
+4. Validates against your C++ function
+
+## Error Handling Best Practices
+
+Always check the return value of `addFunction`, `addEnum`, and `addClass`:
+
+```cpp
+auto result = module->addFunction(sig, &func, name);
+
+switch (result) {
+    case Yoyo::Result::Success:
+        // All good
+        break;
+    case Yoyo::Result::NullParameter:
+        std::cerr << "Function pointer is null\n";
+        break;
+    case Yoyo::Result::InvalidSignature:
+        std::cerr << "Invalid Yoyo signature string\n";
+        break;
+    case Yoyo::Result::ParameterCountMismatch:
+        std::cerr << "Parameter count doesn't match C++ function\n";
+        break;
+    case Yoyo::Result::ReturnTypeMismatch:
+        std::cerr << "Return type mismatch\n";
+        break;
+    case Yoyo::Result::ParameterTypeMismatch:
+        std::cerr << "Parameter types don't match\n";
+        break;
+    default:
+        std::cerr << "Unknown error\n";
+        break;
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Engine Setup" icon="gear" href="/embedding/engine-setup">
+    Learn more about engine initialization and execution
+  </Card>
+  <Card title="Backend Selection" icon="sliders" href="/embedding/backends">
+    Understand LLVM vs YVM module differences
+  </Card>
+</CardGroup>

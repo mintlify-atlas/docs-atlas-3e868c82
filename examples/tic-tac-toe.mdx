@@ -1,0 +1,422 @@
+---
+title: 'Tic-Tac-Toe Game'
+description: 'An interactive command-line tic-tac-toe game demonstrating enums, methods, and game logic'
+---
+
+## Overview
+
+This example demonstrates:
+- Enum types with pattern matching
+- Fixed-size arrays
+- Struct methods and associated functions
+- String interpolation
+- User input handling
+- Game state management
+
+## Complete Code
+
+```yoyo
+Player: enum = { X, O, None }
+player_text: fn (p: &[Player; 9], alt: i32) -> str = {
+    if (*(*p)[alt] == Player::X) 
+        return "X";
+    else if (*(*p)[alt] == Player::O)
+        return "O";
+    return "${alt}";
+}
+cycle: fn (p: Player) -> Player = {
+    if (p == Player::X) 
+        return Player::O;
+    else if (p == Player::O)
+        return Player::X;
+    return p;
+}
+Game: struct = {
+    data: [Player; 9],
+    player: Player,
+    render: fn (&this) = {
+        intermediate := "───┼───┼───";
+        row1 := " ${player_text(&this.data, 0)} │ ${player_text(&this.data, 1)} │ ${player_text(&this.data, 2)} ";
+        row2 := " ${player_text(&this.data, 3)} │ ${player_text(&this.data, 4)} │ ${player_text(&this.data, 5)} ";
+        row3 := " ${player_text(&this.data, 6)} │ ${player_text(&this.data, 7)} │ ${player_text(&this.data, 8)} ";
+        row1.test::print();
+        intermediate.test::print();
+        row2.test::print();
+        intermediate.test::print();
+        row3.test::print();
+    }
+    new: fn -> Game = {
+        return Game{ 
+            .data = [
+                Player::None, Player::None, Player::None,
+                Player::None, Player::None, Player::None,
+                Player::None, Player::None, Player::None
+            ],
+            .player = Player::X
+        };
+    }
+    play: fn (&mut this) = {
+        "${this.player}'s turn: ".test::print();
+        idx: mut u32 = 10;
+        while (idx > 9 && *this.data[idx] != Player::None) {
+            idx = test::read_uint();
+        }
+        *this.data[idx] = this.player;
+        this.player = this.player.cycle();
+    }
+    check_winner: fn (&this) -> Player? = {
+        //horizontal winner
+        if (*this.data[0] == *this.data[1] && *this.data[1] == *this.data[2])
+            return *this.data[0];
+        if (*this.data[3] == *this.data[4] && *this.data[4] == *this.data[5])
+            return *this.data[3];
+        if (*this.data[6] == *this.data[7] && *this.data[7] == *this.data[8])
+            return *this.data[6];
+
+        //vertical winner
+        if (*this.data[0] == *this.data[3] && *this.data[3] == *this.data[6])
+            return *this.data[0];
+        if (*this.data[1] == *this.data[4] && *this.data[4] == *this.data[7])
+            return *this.data[1];
+        if (*this.data[2] == *this.data[5] && *this.data[5] == *this.data[8])
+            return *this.data[2];
+        
+        //diagonal winner
+        if (*this.data[0] == *this.data[4] && *this.data[4] == *this.data[5])
+            return *this.data[0];
+        if (*this.data[2] == *this.data[4] && *this.data[4] == *this.data[6])
+            return *this.data[2];
+        return null;
+    }
+}
+
+main: fn = {
+    game: mut = Game::new();
+    game.render();
+    while (true) {
+        game.play();
+        game.render();
+        if |winner| (game.check_winner()) {
+            if (winner != Player::None) {
+                "${winner} won".test::print();
+                break;
+            }
+        }
+    }
+}
+```
+
+## Breaking Down the Game
+
+<Steps>
+  <Step title="Define the Player Enum">
+    The `Player` enum represents the three possible states of a cell:
+    
+    ```yoyo
+    Player: enum = { X, O, None }
+    ```
+    
+    - **`X`** - First player
+    - **`O`** - Second player
+    - **`None`** - Empty cell
+    
+    <Note>
+      Enums in Yoyo are value types that can be compared with `==`.
+    </Note>
+  </Step>
+
+  <Step title="Helper Functions">
+    <Accordion title="player_text - Display Cell Content">
+      Converts a board position to displayable text:
+      
+      ```yoyo
+      player_text: fn (p: &[Player; 9], alt: i32) -> str = {
+          if (*(*p)[alt] == Player::X) 
+              return "X";
+          else if (*(*p)[alt] == Player::O)
+              return "O";
+          return "${alt}";
+      }
+      ```
+      
+      - Takes a reference to the board array and an index
+      - Returns "X" or "O" for played positions
+      - Returns the position number for empty cells
+      - **Double dereference** `*(*p)[alt]` first dereferences the reference, then the array element
+    </Accordion>
+    
+    <Accordion title="cycle - Switch Players">
+      Alternates between players:
+      
+      ```yoyo
+      cycle: fn (p: Player) -> Player = {
+          if (p == Player::X) 
+              return Player::O;
+          else if (p == Player::O)
+              return Player::X;
+          return p;
+      }
+      ```
+      
+      - Takes the current player
+      - Returns the opposite player
+      - Returns the same player if `None` (edge case)
+    </Accordion>
+  </Step>
+
+  <Step title="Create the Game Structure">
+    The main game state and logic:
+    
+    ```yoyo
+    Game: struct = {
+        data: [Player; 9],
+        player: Player,
+        // ... methods ...
+    }
+    ```
+    
+    - **`data`** - Fixed array of 9 cells (3x3 grid)
+    - **`player`** - Tracks whose turn it is
+  </Step>
+
+  <Step title="Implement Game Initialization">
+    The `new` constructor creates a fresh game:
+    
+    ```yoyo
+    new: fn -> Game = {
+        return Game{ 
+            .data = [
+                Player::None, Player::None, Player::None,
+                Player::None, Player::None, Player::None,
+                Player::None, Player::None, Player::None
+            ],
+            .player = Player::X
+        };
+    }
+    ```
+    
+    - Initializes all cells to `Player::None`
+    - Sets `Player::X` to go first
+    - Returns a new `Game` instance
+  </Step>
+
+  <Step title="Render the Board">
+    Draws the game board with beautiful box-drawing characters:
+    
+    ```yoyo
+    render: fn (&this) = {
+        intermediate := "───┼───┼───";
+        row1 := " ${player_text(&this.data, 0)} │ ${player_text(&this.data, 1)} │ ${player_text(&this.data, 2)} ";
+        row2 := " ${player_text(&this.data, 3)} │ ${player_text(&this.data, 4)} │ ${player_text(&this.data, 5)} ";
+        row3 := " ${player_text(&this.data, 6)} │ ${player_text(&this.data, 7)} │ ${player_text(&this.data, 8)} ";
+        row1.test::print();
+        intermediate.test::print();
+        row2.test::print();
+        intermediate.test::print();
+        row3.test::print();
+    }
+    ```
+    
+    **Example output:**
+    ```
+     0 │ 1 │ 2 
+    ───┼───┼───
+     3 │ X │ 5 
+    ───┼───┼───
+     6 │ 7 │ O 
+    ```
+    
+    <Note>
+      String interpolation with `${...}` embeds expressions directly in strings.
+    </Note>
+  </Step>
+
+  <Step title="Handle Player Moves">
+    The `play` method processes a turn:
+    
+    ```yoyo
+    play: fn (&mut this) = {
+        "${this.player}'s turn: ".test::print();
+        idx: mut u32 = 10;
+        while (idx > 9 && *this.data[idx] != Player::None) {
+            idx = test::read_uint();
+        }
+        *this.data[idx] = this.player;
+        this.player = this.player.cycle();
+    }
+    ```
+    
+    **How it works:**
+    1. Print whose turn it is
+    2. Initialize `idx` to 10 (invalid position)
+    3. Loop until a valid empty position is entered
+    4. Place the current player's mark
+    5. Switch to the next player
+    
+    <Note>
+      The condition `idx > 9 && *this.data[idx] != Player::None` validates:
+      - Position is in range (0-8)
+      - Cell is empty
+    </Note>
+  </Step>
+
+  <Step title="Check for Winner">
+    The `check_winner` method detects game-ending conditions:
+    
+    ```yoyo
+    check_winner: fn (&this) -> Player? = {
+        //horizontal winner
+        if (*this.data[0] == *this.data[1] && *this.data[1] == *this.data[2])
+            return *this.data[0];
+        if (*this.data[3] == *this.data[4] && *this.data[4] == *this.data[5])
+            return *this.data[3];
+        if (*this.data[6] == *this.data[7] && *this.data[7] == *this.data[8])
+            return *this.data[6];
+        // ... vertical and diagonal checks ...
+        return null;
+    }
+    ```
+    
+    <AccordionGroup>
+      <Accordion title="Horizontal Wins">
+        Checks rows 0-2, 3-5, and 6-8:
+        ```
+        0 1 2
+        3 4 5
+        6 7 8
+        ```
+      </Accordion>
+      
+      <Accordion title="Vertical Wins">
+        Checks columns 0-3-6, 1-4-7, and 2-5-8:
+        ```
+        0 . .
+        3 . .
+        6 . .
+        ```
+      </Accordion>
+      
+      <Accordion title="Diagonal Wins">
+        Checks diagonals 0-4-8 and 2-4-6:
+        ```
+        0 . 2
+        . 4 .
+        6 . 8
+        ```
+      </Accordion>
+    </AccordionGroup>
+    
+    Returns the winning player or `null` if no winner yet.
+  </Step>
+
+  <Step title="Run the Game Loop">
+    The main function orchestrates the game:
+    
+    ```yoyo
+    main: fn = {
+        game: mut = Game::new();
+        game.render();
+        while (true) {
+            game.play();
+            game.render();
+            if |winner| (game.check_winner()) {
+                if (winner != Player::None) {
+                    "${winner} won".test::print();
+                    break;
+                }
+            }
+        }
+    }
+    ```
+    
+    **Game flow:**
+    1. Create a new game
+    2. Display the initial empty board
+    3. Loop indefinitely:
+       - Get and execute a player move
+       - Render the updated board
+       - Check for a winner
+       - If someone won, announce and exit
+  </Step>
+</Steps>
+
+## Key Concepts Demonstrated
+
+<AccordionGroup>
+  <Accordion title="Enums and Pattern Matching">
+    The `Player` enum provides type-safe state representation:
+    ```yoyo
+    if (p == Player::X) return Player::O;
+    ```
+    Enum variants are accessed with `::` namespace syntax.
+  </Accordion>
+  
+  <Accordion title="Fixed-Size Arrays">
+    The board uses a compile-time sized array:
+    ```yoyo
+    data: [Player; 9]
+    ```
+    - Size is part of the type
+    - Stack-allocated for efficiency
+    - Bounds checked at runtime
+  </Accordion>
+  
+  <Accordion title="Mutable References">
+    The `play` method takes `&mut this` to modify game state:
+    ```yoyo
+    play: fn (&mut this) = { ... }
+    ```
+    Without `mut`, the method couldn't change the board or current player.
+  </Accordion>
+  
+  <Accordion title="Optional Return Types">
+    `check_winner` returns `Player?` (optional):
+    ```yoyo
+    check_winner: fn (&this) -> Player? = { ... }
+    ```
+    - Can return a `Player` value or `null`
+    - Pattern matched with `if |winner| (...)`
+  </Accordion>
+  
+  <Accordion title="String Interpolation">
+    Dynamic string creation with embedded expressions:
+    ```yoyo
+    "${this.player}'s turn: ".test::print();
+    ```
+    Automatically converts values to strings within `${...}`.
+  </Accordion>
+</AccordionGroup>
+
+## Gameplay Example
+
+```
+ 0 │ 1 │ 2 
+───┼───┼───
+ 3 │ 4 │ 5 
+───┼───┼───
+ 6 │ 7 │ 8 
+
+X's turn: 4
+
+ 0 │ 1 │ 2 
+───┼───┼───
+ 3 │ X │ 5 
+───┼───┼───
+ 6 │ 7 │ 8 
+
+O's turn: 0
+
+ O │ 1 │ 2 
+───┼───┼───
+ 3 │ X │ 5 
+───┼───┼───
+ 6 │ 7 │ 8 
+
+...
+
+X won
+```
+
+<Note>
+  This example showcases how Yoyo handles interactive programs with state management, user input, and control flow - perfect for learning game development basics.
+</Note>

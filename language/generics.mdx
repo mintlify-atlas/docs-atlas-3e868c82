@@ -1,0 +1,442 @@
+---
+title: Generics
+description: Learn how to write generic, reusable code with Yoyo's generics system
+---
+
+## Overview
+
+Generics allow you to write flexible, reusable code that works with multiple types. Yoyo's generics system supports type parameters, constraints, and generic instantiation.
+
+## Generic Functions
+
+### Basic Generic Functions
+
+Define generic functions using the `::<TypeParams>` syntax:
+
+```yoyo
+// Single type parameter
+identity: fn::<T> (value: T) -> T = return value;
+
+// Multiple type parameters
+map: fn::<T, U> (value: T, f: fn(T) -> U) -> U = {
+    return f(value);
+};
+```
+
+### Calling Generic Functions
+
+```yoyo
+// Explicit type arguments
+result := identity::<i32>(42);
+str_result := identity::<str>("hello");
+
+// Type inference (when possible)
+value := identity(100); // T inferred as i32
+```
+
+### Generic Function Examples
+
+```yoyo
+// Generic swap function
+swap: fn::<T> (a: &mut T, b: &mut T) = {
+    temp := *a;
+    *a = *b;
+    *b = temp;
+};
+
+// Generic comparison
+max: fn::<T> (a: T, b: T) -> T = {
+    if (a > b) return a;
+    return b;
+};
+```
+
+## Generic Structs
+
+### Basic Generic Structs
+
+Structs can be parameterized with type parameters:
+
+```yoyo
+Pair: struct::<T, U> = {
+    first: T,
+    second: U
+}
+
+// Usage
+pair := Pair::<i32, str>{ .first = 42, .second = "answer" };
+```
+
+### Generic Struct with Methods
+
+```yoyo
+Box: struct::<T> = {
+    value: T,
+    
+    new: fn (value: T) -> This = {
+        return This{ .value = value };
+    }
+    
+    get: fn (&this) -> &T = return &this.value;
+    
+    set: fn (&mut this, new_value: T) = {
+        this.value = new_value;
+    }
+}
+
+// Usage
+int_box := Box::<i32>::new(42);
+str_box := Box::<str>::new("hello");
+```
+
+### Complex Generic Example: LinkedList
+
+```yoyo
+Node: struct::<T> = {
+    data: T,
+    next: (^Node::<T>)?
+}
+
+LinkedList: struct::<T> = {
+    first: (^Node::<T>)?,
+    
+    new: fn -> This = return This{ .first = null };
+    
+    append: fn (&mut this, value: T) = {
+        if |val| (this.first) {
+            last: mut = val;
+            should_loop: mut = true;
+            while (should_loop) {
+                if |nxt| (last.next) last = nxt;
+                else should_loop = false;
+            }
+            last.next = gcnew Node::<T>{ .data = value, .next = null };
+        } else {
+            this.first = gcnew Node::<T>{ .data = value, .next = null };
+        }
+    }
+}
+
+// Usage
+list := LinkedList::<i32>::new();
+list.append(10);
+list.append(20);
+list.append(30);
+```
+
+## Generic Classes
+
+Classes can also be generic:
+
+```yoyo
+List: class::<T> = {
+    first: (^mut Node::<T>)?,
+    
+    from_array: fn (arr: mut [T]) -> This = {
+        list: This = This{ .first = null };
+        if (arr.size() >= 1) {
+            list.first = new Node::<T>{ .value = arr.extract(0), .next = null }
+        }
+        current: ^mut Node::<T> = list.first.value();
+        while (arr.size()) {
+            next := new Node::<T>{ .value = arr.extract(0), .next = null };
+            current.next = next;
+            current = next;
+        }
+        return list;
+    }
+}
+```
+
+## Generic Constraints
+
+### Interface Constraints
+
+Constrain type parameters to implement specific interfaces:
+
+```yoyo
+// T must implement the Iterator interface with element type O
+sum_all: fn::<T: impl core::Iterator::<O>, O> (iter: T) -> O = {
+    total: mut = O::default();
+    for (value in iter) {
+        total = total + value;
+    }
+    return total;
+};
+```
+
+### Multiple Constraints
+
+```yoyo
+// Type parameter with multiple constraints
+process: fn::<T: impl Iterator & Clone> (value: T) = {
+    // T must implement both Iterator and Clone
+};
+```
+
+### Complex Constraint Example
+
+```yoyo
+LinkedListIterator: struct:&::<T> impl core::Iterator::<&T> = {
+    curr: (^Node::<T>)?,
+    
+    impl core::Iterator::<&T> {
+        next: fn (&mut this) -> (&T)? = {
+            if |node| (this.curr) {
+                this.curr = node.next;
+                return &node.data;
+            }
+            else return null;
+        }
+    }
+}
+```
+
+<Note>
+The `impl` keyword specifies that a type parameter must implement a particular interface.
+</Note>
+
+## Generic Iterator Example
+
+Here's a comprehensive example showing generic iterators:
+
+```yoyo
+// Enumerate iterator wraps any iterator
+EnumerateIter: struct:&::<T, O> impl core::Iterator::<(u64, O)> = {
+    actual_iter: T,
+    idx: u64,
+    
+    impl core::Iterator::<(u64, O)> {
+        next: fn (&mut this) -> (u64, O)? = {
+            if |nxt| (this.actual_iter.core::Iterator::<O>::next()) {
+                this.idx = this.idx + 1;
+                return (this.idx, nxt);
+            }
+            else return null;
+        }
+    }
+}
+
+// Chain iterator combines two iterators
+ChainIter: struct:&::<A, B, O> impl core::Iterator::<O> = {
+    first_iter: A,
+    second_iter: B,
+    
+    impl core::Iterator::<O> {
+        next: fn (&mut this) -> O? = {
+            if |nxt| (this.first_iter.core::Iterator::<O>::next()) {
+                return nxt;
+            }
+            else return this.second_iter.core::Iterator::<O>::next();
+        }
+    }
+}
+
+// Generic functions to create iterators
+enumerate: fn::<T: impl core::Iterator::<O>, O> (iter: T) -> EnumerateIter::<T, O> = {
+    return EnumerateIter::<T, O>{ .actual_iter = iter, .idx = 0 };
+};
+
+chain: fn::<A: impl core::Iterator::<O>, B: impl core::Iterator::<O>, O> 
+    (first: A, snd: B) -> ChainIter::<A, B, O> = {
+    return ChainIter::<A, B, O>{ .first_iter = first, .second_iter = snd };
+};
+
+// Usage
+main: fn = {
+    a := LinkedList::<str>::new();
+    a.append("Hello");
+    a.append("World");
+    
+    b := LinkedList::<str>::new();
+    b.append("Second");
+    b.append("List");
+    
+    for (lol in a.iter().chain(b.iter()).enumerate()) {
+        // lol.0 is the index, lol.1 is the value
+        app::func(&"${lol.0}: ${*lol.1}");
+    }
+}
+```
+
+## Generic Aliases
+
+Create type aliases for generic types:
+
+```yoyo
+StringList: alias = LinkedList::<str>;
+IntBox: alias = Box::<i32>;
+
+// Generic alias with parameters
+PairList: alias::<T> = LinkedList::<Pair::<T, T>>;
+```
+
+## Generic Interfaces
+
+Define generic interfaces:
+
+```yoyo
+Iterator: interface::<T> = {
+    next: fn (&mut this) -> T?;
+    is_end: fn (&this) -> bool;
+}
+
+// Implement for a specific type
+MyIterator: struct impl Iterator::<i32> = {
+    impl Iterator::<i32> {
+        next: fn (&mut this) -> i32? = {
+            // Implementation
+        }
+        
+        is_end: fn (&this) -> bool = {
+            // Implementation
+        }
+    }
+}
+```
+
+## Generic Operator Overloads
+
+Operators can be generic:
+
+```yoyo
+operator: +::<T> (a: &T, b: &T) -> T = {
+    // Generic addition
+};
+```
+
+## Type Parameter Conventions
+
+Common naming conventions for type parameters:
+
+<Tabs>
+  <Tab title="Single Types">
+    - `T` - Generic type
+    - `U` - Second generic type
+    - `V` - Third generic type
+  </Tab>
+  <Tab title="Specific Purposes">
+    - `K` - Key type
+    - `V` - Value type
+    - `E` - Element type
+    - `R` - Result type
+    - `I` - Iterator type
+  </Tab>
+</Tabs>
+
+## Generic Instantiation
+
+When you use a generic type or function, the compiler instantiates a specific version:
+
+```yoyo
+// This creates Box::<i32>
+int_box := Box::<i32>::new(42);
+
+// This creates a separate Box::<str>
+str_box := Box::<str>::new("hello");
+
+// Each instantiation is a distinct type
+// int_box and str_box are different types
+```
+
+## Ownership in Generics
+
+Generic structs can have ownership modifiers:
+
+```yoyo
+// Generic non-owning struct
+View: struct:&::<T> = {
+    data: &T
+}
+
+// Generic mutable non-owning struct  
+MutView: struct:&mut::<T> = {
+    data: &mut T
+}
+```
+
+## Advanced Example: Complete Iterator System
+
+```yoyo
+iter: fn::<T> (list: &LinkedList::<T>) -> LinkedListIterator::<T> = {
+    return LinkedListIterator::<T>{ .curr = list.first };
+};
+
+enumerate: fn::<T: impl core::Iterator::<O>, O> (iter: T) -> EnumerateIter::<T, O> = {
+    return EnumerateIter::<T, O>{ .actual_iter = iter, .idx = 0 };
+};
+
+chain: fn::<A: impl core::Iterator::<O>, B: impl core::Iterator::<O>, O> 
+    (first: A, snd: B) -> ChainIter::<A, B, O> = {
+    return ChainIter::<A, B, O>{ .first_iter = first, .second_iter = snd };
+};
+
+main: fn = {
+    a: mut = LinkedList::<str>::new();
+    a.append("Hello");
+    a.append("World");
+    a.append("Stuff");
+    a.append("Others");
+    
+    b: mut = LinkedList::<str>::new();
+    b.append("Second List");
+    b.append("Second List Again");
+    
+    for (lol in a.iter().chain(b.iter()).enumerate()) {
+        app::func(&"${lol.0}: ${*lol.1}");
+    }
+}
+```
+
+## Generic Clause Structure
+
+Internally, generic clauses contain:
+
+- **Type parameters**: List of generic type names
+- **Constraints**: Map of type names to their constraints
+
+```yoyo
+// This generates a GenericClause with:
+// - types: ["T", "U"]
+// - constraints: { "T": [impl Iterator] }
+fn::<T: impl Iterator, U> (a: T, b: U) -> U
+```
+
+## Best Practices
+
+<Accordion title="Keep type parameters minimal">
+Only add type parameters when necessary. Avoid over-parameterization:
+
+```yoyo
+// Good
+Box: struct::<T> = { value: T }
+
+// Overkill
+Box: struct::<T, U, V> = { value: T } // U and V unused
+```
+</Accordion>
+
+<Accordion title="Use meaningful constraints">
+Apply constraints that document what operations are needed:
+
+```yoyo
+// Good - clear what T must support
+sum: fn::<T: impl Iterator::<i32>> (iter: T) -> i32
+
+// Less clear
+sum: fn::<T> (iter: T) -> i32 // What can T do?
+```
+</Accordion>
+
+<Accordion title="Prefer generic over duplicated code">
+If you find yourself writing similar code for different types, use generics:
+
+```yoyo
+// Instead of:
+int_max: fn (a: i32, b: i32) -> i32 = if (a > b) a else b;
+float_max: fn (a: f32, b: f32) -> f32 = if (a > b) a else b;
+
+// Write:
+max: fn::<T> (a: T, b: T) -> T = if (a > b) a else b;
+```
+</Accordion>

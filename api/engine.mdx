@@ -1,0 +1,199 @@
+---
+title: "Engine"
+description: "Core execution engine for the Yoyo programming language"
+---
+
+## Overview
+
+The `Engine` class is the core execution engine for Yoyo programs. It manages modules, source code, and runtime execution. The Engine class is abstract and must be implemented by concrete engine backends (such as LLVM or YVM).
+
+## Class Definition
+
+```cpp
+namespace Yoyo {
+    class YOYO_API Engine
+    {
+    protected:
+        Runtime rt;
+    public:
+        Engine();
+        virtual ~Engine() = default;
+        Engine(Engine&&) noexcept = default;
+        
+        virtual void* createGlobalConstant(
+            const Type& type, 
+            const std::vector<Constant>& args, 
+            IRGenerator*
+        ) = 0;
+        
+        std::unordered_map<std::string, std::unique_ptr<ModuleBase>> modules;
+        std::unordered_map<std::string, std::pair<std::string, std::vector<std::unique_ptr<Statement>>>> sources;
+        
+        static std::string_view viewString(void* str);
+        void execute();
+        
+        template<class Rep, class Period>
+        void sleep(const std::chrono::duration<Rep, Period>& sleep_duration);
+        
+        void sleep(uint64_t milliseconds);
+    };
+}
+```
+
+## Constructor
+
+### Engine()
+
+Constructs a new Engine instance.
+
+```cpp
+Engine();
+```
+
+## Pure Virtual Methods
+
+These methods must be implemented by concrete engine implementations.
+
+### createGlobalConstant()
+
+Creates a global constant value in the engine's execution environment.
+
+```cpp
+virtual void* createGlobalConstant(
+    const Type& type,
+    const std::vector<Constant>& args,
+    IRGenerator* irgen
+) = 0;
+```
+
+<ParamField path="type" type="const Type&">
+  The type of the constant to create
+</ParamField>
+
+<ParamField path="args" type="const std::vector<Constant>&">
+  Vector of constant values used to initialize the global constant
+</ParamField>
+
+<ParamField path="irgen" type="IRGenerator*">
+  Pointer to the IR generator for code generation context
+</ParamField>
+
+<ResponseField name="return" type="void*">
+  Pointer to the created global constant in the engine's representation
+</ResponseField>
+
+## Public Members
+
+### modules
+
+Map of module names to module instances managed by this engine.
+
+```cpp
+std::unordered_map<std::string, std::unique_ptr<ModuleBase>> modules;
+```
+
+### sources
+
+Map of source file identifiers to their content and parsed AST statements.
+
+```cpp
+std::unordered_map<std::string, std::pair<std::string, std::vector<std::unique_ptr<Statement>>>> sources;
+```
+
+Each entry contains:
+- **Key**: Source file identifier (string)
+- **Value**: Pair containing the source code string and vector of parsed statements
+
+## Static Methods
+
+### viewString()
+
+Converts an internal string pointer to a `std::string_view` for safe string viewing.
+
+```cpp
+static std::string_view viewString(void* str);
+```
+
+<ParamField path="str" type="void*">
+  Pointer to an internal string representation
+</ParamField>
+
+<ResponseField name="return" type="std::string_view">
+  A view into the string data without copying
+</ResponseField>
+
+## Methods
+
+### execute()
+
+Begins execution of the loaded program. This method runs the runtime scheduler and processes all fibers/coroutines.
+
+```cpp
+void execute();
+```
+
+### sleep() (template)
+
+Suspends execution for a specified duration using any `std::chrono::duration` type.
+
+```cpp
+template<class Rep, class Period>
+void sleep(const std::chrono::duration<Rep, Period>& sleep_duration);
+```
+
+<ParamField path="sleep_duration" type="const std::chrono::duration<Rep, Period>&">
+  Duration to sleep, automatically converted to milliseconds
+</ParamField>
+
+**Example:**
+```cpp
+engine.sleep(std::chrono::seconds(2));      // Sleep for 2 seconds
+engine.sleep(std::chrono::milliseconds(500)); // Sleep for 500ms
+```
+
+### sleep() (milliseconds)
+
+Suspends execution for a specified number of milliseconds.
+
+```cpp
+void sleep(uint64_t milliseconds);
+```
+
+<ParamField path="milliseconds" type="uint64_t">
+  Number of milliseconds to sleep
+</ParamField>
+
+## Protected Members
+
+### rt
+
+The runtime scheduler that manages fibers and coroutines.
+
+```cpp
+Runtime rt;
+```
+
+The Runtime class manages fiber scheduling and coroutines.
+
+## Usage Example
+
+```cpp
+// Concrete engine implementation (LLVM or YVM)
+auto engine = std::make_unique<LLVMEngine>();
+
+// Load and parse source code
+Parser parser(source_code);
+auto statements = parser.parseProgram();
+
+// Store in engine
+engine->sources["main.yy"] = {source_code, std::move(statements)};
+
+// Execute the program
+engine->execute();
+```
+
+## See Also
+
+- [ModuleBase](/api/module) - Module management
+- [Parser](/api/parser) - Source code parsing
+- [Module](/api/module) - Module management

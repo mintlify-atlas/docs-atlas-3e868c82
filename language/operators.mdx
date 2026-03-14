@@ -1,0 +1,433 @@
+---
+title: Operators
+description: Learn about Yoyo's operators and operator overloading
+---
+
+## Overview
+
+Yoyo provides a comprehensive set of operators for arithmetic, comparison, logical operations, and more. All operators can be overloaded for custom types.
+
+## Arithmetic Operators
+
+### Binary Arithmetic
+
+```yoyo
+a + b   // Addition
+a - b   // Subtraction
+a * b   // Multiplication
+a / b   // Division
+a % b   // Modulo (remainder)
+```
+
+### Unary Arithmetic
+
+```yoyo
+-a      // Negation
+```
+
+### Examples
+
+```yoyo
+result := 10 + 5;      // 15
+product := 6 * 7;      // 42
+remainder := 17 % 5;   // 2
+negative := -42;       // -42
+```
+
+## Comparison Operators
+
+### Equality
+
+```yoyo
+a == b  // Equal to
+a != b  // Not equal to
+```
+
+### Relational
+
+```yoyo
+a < b   // Less than
+a > b   // Greater than
+a <= b  // Less than or equal
+a >= b  // Greater than or equal
+```
+
+### Spaceship Operator
+
+Three-way comparison operator:
+
+```yoyo
+a <=> b  // Returns ordering: less, equal, or greater
+```
+
+<Note>
+The spaceship operator `<=>` is useful for implementing comparison logic and can return `StrongOrdering` or `PartialOrdering`.
+</Note>
+
+## Logical Operators
+
+### Boolean Logic
+
+```yoyo
+a && b  // Logical AND (short-circuiting)
+a || b  // Logical OR (short-circuiting)
+!a      // Logical NOT
+```
+
+### Examples
+
+```yoyo
+if (x > 0 && x < 10) {
+    // x is between 0 and 10
+}
+
+if (is_ready || is_forced) {
+    start();
+}
+
+is_invalid := !is_valid;
+```
+
+## Bitwise Operators
+
+### Binary Bitwise
+
+```yoyo
+a & b   // Bitwise AND
+a | b   // Bitwise OR
+a ^ b   // Bitwise XOR
+a << b  // Left shift
+a >> b  // Right shift
+```
+
+### Examples
+
+```yoyo
+flags := 0b1010 | 0b0101;     // 0b1111
+masked := value & 0xFF;        // Mask low byte
+shifted := data << 2;          // Shift left by 2
+```
+
+## Assignment Operators
+
+### Basic Assignment
+
+```yoyo
+x = value
+```
+
+### Compound Assignment
+
+All compound assignments are expanded to their full form:
+
+```yoyo
+x += y   // Equivalent to: x = x + y
+x -= y   // Equivalent to: x = x - y
+x *= y   // Equivalent to: x = x * y
+x /= y   // Equivalent to: x = x / y
+x %= y   // Equivalent to: x = x % y
+x &= y   // Equivalent to: x = x & y
+x |= y   // Equivalent to: x = x | y
+x ^= y   // Equivalent to: x = x ^ y
+x <<= y  // Equivalent to: x = x << y
+x >>= y  // Equivalent to: x = x >> y
+```
+
+<Note>
+In compound assignments like `x += y`, the value of `x` is moved during the operation.
+</Note>
+
+## Member Access Operators
+
+### Dot Operator
+
+Access struct/class members:
+
+```yoyo
+point.x
+struct_instance.method()
+```
+
+### Scope Resolution
+
+Access module or type members:
+
+```yoyo
+Module::function()
+Enum::Variant
+Struct::static_method()
+```
+
+### Null Propagation
+
+Safe member access on optionals:
+
+```yoyo
+opt?.field  // Returns field? (None if opt is null)
+obj?.method()  // Returns method result? (None if obj is null)
+```
+
+## Subscript Operator
+
+Array and container indexing:
+
+```yoyo
+element := array[0];
+value := *array[index];
+map[key] = value;
+```
+
+## Reference Operators
+
+### Reference Creation
+
+```yoyo
+&expr       // Immutable reference
+&mut expr   // Mutable reference
+```
+
+### Dereference
+
+```yoyo
+*ptr        // Dereference pointer/reference
+```
+
+### Examples
+
+```yoyo
+value := 42;
+ref := &value;
+deref_value := *ref;  // 42
+
+data: mut = 100;
+mut_ref := &mut data;
+*mut_ref = 200;  // Modify through reference
+```
+
+## Range Operators
+
+```yoyo
+a..b    // Exclusive range [a, b)
+a..=b   // Inclusive range [a, b]
+```
+
+## Operator Overloading
+
+### Overloadable Binary Operators
+
+These operators can be overloaded:
+
+```yoyo
++  -  *  /  %      // Arithmetic
+&  |  ^  <<  >>    // Bitwise
+<=>                // Spaceship (three-way comparison)
+```
+
+### Overloadable Unary Operators
+
+```yoyo
+-   // Negation
+!   // Logical NOT
+```
+
+### Subscript Operators
+
+```yoyo
+[]       // Immutable subscript
+mut []   // Mutable subscript
+```
+
+### Operator Overload Syntax
+
+Define operator overloads using the `operator:` syntax:
+
+```yoyo
+// Binary operator
+operator: +(a: &Vector2, b: &Vector2) -> Vector2 = {
+    return Vector2{ .x = a.x + b.x, .y = a.y + b.y };
+};
+
+// Unary operator
+operator: -(v: &Vector2) -> Vector2 = {
+    return Vector2{ .x = -v.x, .y = -v.y };
+};
+```
+
+### Subscript Operator Overloading
+
+```yoyo
+// Immutable subscript
+operator: [](container: &Container, index: u32) -> &T = {
+    return &container.data[index];
+};
+
+// Mutable subscript  
+operator: mut [](container: &mut Container, index: u32) -> &mut T = {
+    return &mut container.data[index];
+};
+```
+
+<Accordion title="Example: Vector2 Operator Overloading">
+```yoyo
+Vector2: struct = {
+    x: u32,
+    y: u32
+}
+
+// Addition
+operator: +(a: &Vector2, b: &Vector2) -> Vector2 = {
+    return Vector2{ .x = a.x + b.x, .y = a.y + b.y };
+};
+
+// Subscript access (0 = x, 1 = y)
+operator: [](v: &Vector2, index: u32) -> u32 = {
+    if (index == 0) return v.x;
+    else return v.y;
+};
+
+// Mutable subscript
+operator: mut [](v: &mut Vector2, index: u32) -> u32 = {
+    return 100; // Custom behavior
+};
+
+// Usage
+v1 := Vector2{ .x = 10, .y = 20 };
+v2 := Vector2{ .x = 5, .y = 15 };
+sum := v1 + v2;  // Vector2{ .x = 15, .y = 35 }
+
+x := v1[0];  // 10
+y := v1[1];  // 20
+```
+</Accordion>
+
+### Comparison Operator Overloading
+
+```yoyo
+// Spaceship operator (enables all comparisons)
+operator: <=>(a: &MyType, b: &MyType) -> StrongOrdering = {
+    // Return ordering
+};
+
+// Or just equality
+operator: ==(a: &MyType, b: &MyType) -> bool = {
+    // Return true if equal
+};
+```
+
+<Note>
+Implementing `<=>` automatically provides `<`, `>`, `<=`, `>=`, `==`, and `!=` operators.
+</Note>
+
+### Generic Operator Overloads
+
+Operators can be generic:
+
+```yoyo
+operator: +::<T> (a: &T, b: &T) -> T = {
+    // Generic addition implementation
+};
+```
+
+## Operator Precedence
+
+Operators have the following precedence (highest to lowest):
+
+<Tabs>
+  <Tab title="Highest">
+    1. Member access: `.`, `::`
+    2. Function call: `()`
+    3. Subscript: `[]`
+    4. Postfix: (none currently)
+  </Tab>
+  <Tab title="Unary">
+    5. Unary: `!`, `-`, `&`, `*`, `&mut`
+  </Tab>
+  <Tab title="Multiplicative">
+    6. Multiplicative: `*`, `/`, `%`
+  </Tab>
+  <Tab title="Additive">
+    7. Additive: `+`, `-`
+  </Tab>
+  <Tab title="Shift">
+    8. Shift: `<<`, `>>`
+  </Tab>
+  <Tab title="Comparison">
+    9. Comparison: `<`, `>`, `<=`, `>=`, `<=>`
+    10. Equality: `==`, `!=`
+  </Tab>
+  <Tab title="Bitwise">
+    11. Bitwise AND: `&`
+    12. Bitwise XOR: `^`
+    13. Bitwise OR: `|`
+  </Tab>
+  <Tab title="Logical">
+    14. Logical AND: `&&`
+    15. Logical OR: `||`
+  </Tab>
+  <Tab title="Assignment">
+    16. Assignment: `=`, `+=`, `-=`, etc.
+  </Tab>
+</Tabs>
+
+Use parentheses to override precedence:
+
+```yoyo
+result := (a + b) * c;  // Addition before multiplication
+flag := !(x > 0 && y > 0);  // Parentheses clarify intent
+```
+
+## Special Operator Considerations
+
+### Binary-Only Operators
+
+These operators can only be overloaded as binary operators:
+
+```yoyo
++  /  *  %  &  |  ^  <=>  >>  <<
+```
+
+### Both Unary and Binary
+
+These can be overloaded as either unary or binary:
+
+```yoyo
+-   // Unary negation or binary subtraction
+&   // Unary reference or binary bitwise AND
+```
+
+## Custom Subscript Example
+
+```yoyo
+Vector2: struct = {
+    x: u32,
+    y: u32
+}
+
+// Custom subscript that modifies behavior
+operator: mut [](x: &mut u32, y: &Vector2) -> void = {
+    *x = y.x;
+};
+
+operator: [](x: &Vector2, y: u32) -> u32 = {
+    if (y == 0) return x.x;
+    else return x.y;
+};
+
+// Usage
+a: mut = Vector2{ .x = 90, .y = 20 };
+value := a[0];  // 90
+
+b: mut u32 = 10;
+b[&a];  // Sets b to 90
+```
+
+## Operator Overload Resolution
+
+When multiple operator overloads exist, the compiler:
+
+1. Considers all overloads that match the operator
+2. Checks type compatibility for each parameter
+3. Calculates "conversion friction" for each candidate
+4. Selects the overload with the least friction
+
+This allows flexible overloading while maintaining type safety.

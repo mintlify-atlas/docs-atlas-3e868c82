@@ -1,0 +1,563 @@
+---
+title: Backend Selection
+description: Choose and configure the LLVM or YVM execution backend for your embedded Yoyo applications
+---
+
+Yoyo supports two execution backends: **LLVM** for high-performance JIT compilation and **YVM** (Yoyo Virtual Machine) for lightweight execution. This guide explains the differences, how to configure them, and when to use each.
+
+## Overview
+
+<CardGroup cols={2}>
+  <Card title="LLVM Backend" icon="bolt">
+    Uses LLVM's ORC JIT for compilation and execution
+    
+    **Pros:**
+    - Excellent runtime performance
+    - Advanced optimizations
+    - Mature tooling
+    
+    **Cons:**
+    - Larger binary size
+    - Slower compilation
+    - LLVM dependency
+  </Card>
+  
+  <Card title="YVM Backend" icon="microchip">
+    Uses Yoyo's custom virtual machine
+    
+    **Pros:**
+    - Fast compilation
+    - Lightweight
+    - Smaller binaries
+    
+    **Cons:**
+    - Lower runtime performance
+    - Less optimization
+  </Card>
+</CardGroup>
+
+## Build Configuration
+
+The backend is selected at build time using Meson build options.
+
+### Meson Options
+
+Configure the backend in your `meson.build` or command line:
+
+```bash
+# Configure for LLVM only
+meson setup build -Dexecutor=llvm
+
+# Configure for YVM only
+meson setup build -Dexecutor=yvm
+
+# Configure for both (allows runtime selection)
+meson setup build -Dexecutor=both
+```
+
+<ParamField path="executor" type="string" default="both">
+  Backend selection option
+  
+  - `llvm` - LLVM backend only
+  - `yvm` - YVM backend only  
+  - `both` - Include both backends (increases binary size)
+</ParamField>
+
+<ParamField path="llvm_static" type="bool" default="false">
+  Link LLVM statically (only applicable when `executor=llvm` or `executor=both`)
+  
+  ```bash
+  meson setup build -Dexecutor=llvm -Dllvm_static=true
+  ```
+</ParamField>
+
+### Source Files by Backend
+
+From `meson.build`, here's what gets included with each backend:
+
+<Tabs>
+  <Tab title="LLVM Backend (executor=llvm)">
+    ```python meson.build
+    if backend == 'llvm' or backend == 'both'
+        llvm_static = get_option('llvm_static')
+        deps += [dependency('llvm', static: llvm_static)]
+        sources += [
+            'src/yoyo/llvm/ir_gen.cpp',
+            'src/yoyo/llvm/expression_evaluator.cpp',
+            'src/yoyo/llvm/engine.cpp',
+            'src/yoyo/llvm/module.cpp',
+            'src/yoyo/to_string.cpp',
+            'src/yoyo/llvm/app_module.cpp',
+            
+            'include/yoyo/llvm/llvm_irgen.h',
+            'include/yoyo/llvm/llvm_engine.h',
+            'include/yoyo/llvm/llvm_module.h',
+            'include/yoyo/llvm/app_module.h',
+        ]
+    endif
+    ```
+    
+    **Dependencies:**
+    - LLVM (version determined by your system's package manager)
+    - bdw-gc (Boehm-Demers-Weiser garbage collector)
+  </Tab>
+  
+  <Tab title="YVM Backend (executor=yvm)">
+    ```python meson.build
+    if backend == 'yvm' or backend == 'both'
+        yoyo_vm = subproject('yoyo-vm')
+        deps += [yoyo_vm.get_variable('yoyo_vm_dep'), dependency('libffi')]
+        sources += [
+            'include/yoyo/yvm/yvm_irgen.h',
+            'include/yoyo/yvm/yvm_engine.h',
+            'include/yoyo/yvm/yvm_module.h',
+            'include/yoyo/yvm/native_type.h',
+            'include/yoyo/yvm/unique_type_selector.h',
+            'include/yoyo/yvm/app_module.h',
+            'include/yoyo/yvm/fwd_decl.h',
+            
+            'src/yoyo/yvm/ir_gen.cpp',
+            'src/yoyo/yvm/expression_evaluator.cpp',
+            'src/yoyo/yvm/engine.cpp',
+            'src/yoyo/yvm/module.cpp',
+            'src/yoyo/yvm/native_type.cpp',
+            'src/yoyo/yvm/unique_type_selector.cpp',
+            'src/yoyo/yvm/app_module.cpp',
+        ]
+        
+        # Platform-specific native module
+        if target_machine.system() == 'windows'
+            sources += ['src/yoyo/yvm/windows_native_module.cpp']
+        else
+            sources += ['src/yoyo/yvm/unix_native_module.cpp']
+        endif
+    endif
+    ```
+    
+    **Dependencies:**
+    - yoyo-vm subproject (included automatically)
+    - libffi (Foreign Function Interface library)
+    - bdw-gc (Boehm-Demers-Weiser garbage collector)
+  </Tab>
+</Tabs>
+
+## LLVM Backend
+
+### Header Includes
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>
+#include <yoyo/llvm/app_module.h>
+#include <yoyo/llvm/llvm_module.h>
+```
+
+### Engine Class
+
+```cpp include/yoyo/llvm/llvm_engine.h
+namespace Yoyo {
+    class LLVMEngine : public Engine {
+    public:
+        llvm::orc::ThreadSafeContext llvm_context;
+        std::unique_ptr<llvm::orc::LLJIT> jit;
+        
+        LLVMAppModule* addAppModule(const std::string& name);
+        void addModule(const std::string& module_name, std::string source);
+        void compile();
+        void prepareForExecution();
+        void addStaticLibrary(std::string_view path);
+        void addDynamicLibrary(std::string_view path);
+        virtual void* createGlobalConstant(const Type& type, const std::vector<Constant>& args, IRGenerator*) override;
+    };
+}
+```
+
+### Key Features
+
+<AccordionGroup>
+  <Accordion title="ThreadSafeContext" icon="lock">
+    Direct access to LLVM's thread-safe context:
+    
+    ```cpp
+    Yoyo::LLVMEngine engine;
+    llvm::LLVMContext& ctx = *engine.llvm_context.getContext();
+    // Use LLVM context for advanced operations
+    ```
+  </Accordion>
+  
+  <Accordion title="LLJIT Access" icon="gauge-high">
+    Access to LLVM's ORC JIT compiler:
+    
+    ```cpp
+    if (engine.jit) {
+        // Direct JIT manipulation if needed
+        auto& jit = *engine.jit;
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Library Linking" icon="link">
+    Link static and dynamic libraries:
+    
+    ```cpp
+    // Link static library
+    engine.addStaticLibrary("/usr/lib/libm.a");
+    
+    // Load dynamic library  
+    engine.addDynamicLibrary("/usr/lib/libpthread.so");
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Module Type
+
+```cpp include/yoyo/llvm/llvm_module.h
+struct YOYO_API LLModule : public ModuleBase {
+    llvm::orc::ThreadSafeModule code;
+    
+    std::unordered_map<ClassDeclaration*, llvm::StructType*> classes_types;
+    std::unordered_map<UnionDeclaration*, llvm::StructType*> union_types;
+    std::unordered_map<std::string, std::pair<llvm::StructType*, std::unique_ptr<LambdaExpression>>> lambdas;
+    
+    llvm::Type* ToLLVMType(const Type& type, const std::string& hash, IRGenerator*, const std::vector<Type>& disallowed_types);
+    static void makeBuiltinModule(Engine* eng);
+    void dumpIR();
+};
+```
+
+**Module utilities:**
+- `dumpIR()` - Print LLVM IR for debugging
+- `ToLLVMType()` - Convert Yoyo types to LLVM types
+
+### Example
+
+```cpp
+#include <yoyo/llvm/llvm_engine.h>
+#include <iostream>
+
+int32_t compute(int32_t x) {
+    return x * x + 10;
+}
+
+int main() {
+    Yoyo::LLVMEngine engine;
+    
+    // Add application module
+    auto* app = engine.addAppModule("app");
+    app->addFunction("fn(x: i32) -> i32", &compute, "compute");
+    
+    // Add source
+    engine.addModule("main", R"(
+        import app;
+        
+        pub fn main() {
+            let result = app.compute(5);
+            print(result);  // 35
+        }
+    )");
+    
+    // Link libraries if needed
+    engine.addDynamicLibrary("/usr/lib/libm.so");
+    
+    // Compile and run
+    engine.compile();
+    engine.prepareForExecution();
+    engine.execute();
+    
+    return 0;
+}
+```
+
+## YVM Backend
+
+### Header Includes
+
+```cpp
+#include <yoyo/yvm/yvm_engine.h>
+#include <yoyo/yvm/app_module.h>
+#include <yoyo/yvm/yvm_module.h>
+```
+
+### Engine Class
+
+```cpp include/yoyo/yvm/yvm_engine.h
+namespace Yoyo {
+    struct FunctionTy {
+        uint64_t* code;
+        StructNativeTy* params;
+        NativeTy* ret;
+        bool should_sret;
+    };
+    
+    class YOYO_API YVMEngine : public Engine {
+    public:
+        YVMEngine();
+        ~YVMEngine() override;
+        
+        YVMAppModule* addAppModule(const std::string& name);
+        ModuleBase* addModule(const std::string& module_name, std::string source);
+        bool compile();
+        void prepareForExecution();
+        void addDynamicLibrary(std::string_view path);
+        Fiber createFiber(const FunctionTy& fn);
+        std::optional<FunctionTy> findFunction(ModuleBase* mod, const std::string& function_name);
+        
+        void* createGlobalConstant(const Type& type, const std::vector<Constant>& args, IRGenerator*) override;
+        void* findNativeFunction(const std::string& name);
+        size_t getTypeSpawnIdx(const Type& tp);
+        
+        Yvm::VM vm;
+        StructTypeSelector struct_manager;
+        UniqueFISelector fi_manager;
+        UnionTypeSelector union_manager;
+        ArrayTypeSelector array_manager;
+        std::vector<NativeModule*> external_dlls;
+    };
+}
+```
+
+### Key Features
+
+<AccordionGroup>
+  <Accordion title="VM Access" icon="desktop">
+    Direct access to the virtual machine:
+    
+    ```cpp
+    Yoyo::YVMEngine engine;
+    Yvm::VM& vm = engine.vm;
+    // Direct VM operations
+    ```
+  </Accordion>
+  
+  <Accordion title="Fiber Creation" icon="network-wired">
+    Manually create and manage fibers:
+    
+    ```cpp
+    auto* mod = engine.modules["mymodule"].get();
+    auto fn_opt = engine.findFunction(mod, "myFunction");
+    
+    if (fn_opt) {
+        Fiber fiber = engine.createFiber(*fn_opt);
+        // Fiber is now scheduled
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Type Management" icon="shapes">
+    Manage custom types with selectors:
+    
+    ```cpp
+    // Access type selectors
+    size_t idx = engine.getTypeSpawnIdx(some_type);
+    
+    // Struct types
+    auto& structs = engine.struct_manager;
+    
+    // Union types
+    auto& unions = engine.union_manager;
+    
+    // Array types
+    auto& arrays = engine.array_manager;
+    ```
+  </Accordion>
+  
+  <Accordion title="Native Functions" icon="function">
+    Find native functions from loaded libraries:
+    
+    ```cpp
+    engine.addDynamicLibrary("/path/to/lib.so");
+    void* fn_ptr = engine.findNativeFunction("some_c_function");
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Module Type
+
+```cpp include/yoyo/yvm/yvm_module.h
+struct YOYO_API YVMModule : public ModuleBase {
+    Yvm::Module code;
+    
+    std::unordered_map<ClassDeclaration*, StructNativeTy*> classes_types;
+    std::unordered_map<UnionDeclaration*, StructNativeTy*> union_types;
+    std::unordered_map<std::string, std::pair<StructNativeTy*, std::unique_ptr<LambdaExpression>>> lambdas;
+    
+    NativeTy* toNativeType(const Type& type, const std::string& hash, IRGenerator*, const std::vector<Type>& disallowed_types);
+    static void makeBuiltinModule(YVMEngine* eng);
+    std::string dumpIR();
+};
+```
+
+**Module utilities:**
+- `dumpIR()` - Returns bytecode as string for debugging
+- `toNativeType()` - Convert Yoyo types to VM native types
+
+### Compilation Error Checking
+
+<Warning>
+  Unlike LLVM, `YVMEngine::compile()` returns `bool`. Always check for errors:
+</Warning>
+
+```cpp
+if (!engine.compile()) {
+    std::cerr << "Compilation failed!\n";
+    return 1;
+}
+```
+
+### Example
+
+```cpp
+#include <yoyo/yvm/yvm_engine.h>
+#include <iostream>
+
+float distance(float x1, float y1, float x2, float y2) {
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    return std::sqrt(dx*dx + dy*dy);
+}
+
+int main() {
+    Yoyo::YVMEngine engine;
+    
+    // Add application module
+    auto* geom = engine.addAppModule("geometry");
+    geom->addFunction("fn(x1: f32, y1: f32, x2: f32, y2: f32) -> f32", &distance, "distance");
+    
+    // Add source
+    engine.addModule("main", R"(
+        import geometry;
+        
+        pub fn main() {
+            let dist = geometry.distance(0.0, 0.0, 3.0, 4.0);
+            print(dist);  // 5.0
+        }
+    )");
+    
+    // Compile (check for errors!)
+    if (!engine.compile()) {
+        std::cerr << "Compilation failed\n";
+        return 1;
+    }
+    
+    engine.prepareForExecution();
+    engine.execute();
+    
+    return 0;
+}
+```
+
+## Choosing a Backend
+
+Use this decision tree to select the right backend:
+
+<Steps>
+  <Step title="Performance Critical?">
+    If your application requires maximum runtime performance:
+    
+    **Choose LLVM** - Better optimization, faster execution
+  </Step>
+  
+  <Step title="Fast Iteration?">
+    If you need quick compile times during development:
+    
+    **Choose YVM** - Compiles much faster
+  </Step>
+  
+  <Step title="Binary Size Matters?">
+    If you need to minimize binary size (embedded systems, etc.):
+    
+    **Choose YVM** - No LLVM dependency
+  </Step>
+  
+  <Step title="Need Both?">
+    If you want runtime selection:
+    
+    **Build with both** - Use `-Dexecutor=both`
+    
+    ```cpp
+    #ifdef YOYO_USE_LLVM
+        Yoyo::LLVMEngine engine;
+    #else
+        Yoyo::YVMEngine engine;
+    #endif
+    ```
+  </Step>
+</Steps>
+
+## Comparison Table
+
+| Feature | LLVM Backend | YVM Backend |
+|---------|-------------|-------------|
+| **Compilation Speed** | Slower | Faster |
+| **Runtime Performance** | Excellent | Good |
+| **Binary Size** | Larger (~50MB+) | Smaller (~5MB) |
+| **Optimization** | Advanced (LLVM passes) | Basic |
+| **Dependencies** | LLVM, bdw-gc | libffi, yoyo-vm, bdw-gc |
+| **Library Linking** | Static + Dynamic | Dynamic only |
+| **Platform Support** | Where LLVM runs | More portable |
+| **Debug Tools** | LLVM tooling | Custom VM tools |
+| **IR Inspection** | `dumpIR()` prints LLVM IR | `dumpIR()` returns bytecode string |
+
+## Debugging
+
+Both backends support IR/bytecode dumping:
+
+<CodeGroup>
+```cpp LLVM IR Dump
+Yoyo::LLVMEngine engine;
+// ... add modules ...
+engine.compile();
+
+// Dump LLVM IR to stdout
+auto* mod = dynamic_cast<Yoyo::LLModule*>(engine.modules["main"].get());
+if (mod) {
+    mod->dumpIR();
+}
+```
+
+```cpp YVM Bytecode Dump
+Yoyo::YVMEngine engine;
+// ... add modules ...
+engine.compile();
+
+// Get bytecode as string
+auto* mod = dynamic_cast<Yoyo::YVMModule*>(engine.modules["main"].get());
+if (mod) {
+    std::string bytecode = mod->dumpIR();
+    std::cout << bytecode << std::endl;
+}
+```
+</CodeGroup>
+
+## Runtime Type Information
+
+The `Runtime` class (in `runtime.h`) is shared between both backends:
+
+```cpp include/yoyo/runtime.h
+namespace Yoyo {
+    struct YOYO_API Runtime {
+        std::vector<mco_coro*> routs;
+        std::vector<mco_coro*> dead_coros;
+        std::unordered_map<mco_coro*, bool> is_externally_owned;
+        
+        using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
+        std::vector<std::pair<mco_coro*, std::variant<mco_coro*, TimePoint, std::monostate>>> waiting;
+        
+        void run();
+        void add_job(mco_coro*);
+        void release_job(mco_coro*);
+    };
+}
+```
+
+Both backends use the same coroutine-based runtime powered by minicoro.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Engine Setup" icon="gear" href="/embedding/engine-setup">
+    Learn more about engine initialization
+  </Card>
+  <Card title="Module System" icon="cube" href="/embedding/modules">
+    Create application modules and expose APIs
+  </Card>
+</CardGroup>

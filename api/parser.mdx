@@ -1,0 +1,735 @@
+---
+title: "Parser"
+description: "Parses Yoyo source code into an Abstract Syntax Tree (AST)"
+---
+
+## Overview
+
+The `Parser` class is responsible for converting Yoyo source code into an Abstract Syntax Tree (AST). It uses a Pratt parser design with pluggable prefix and infix parselets for extensibility.
+
+## Class Definition
+
+```cpp
+namespace Yoyo {
+    class YOYO_API Parser
+    {
+    public:
+        explicit Parser(std::string& source);
+        
+        // Main parsing methods
+        std::unique_ptr<ASTNode> parseExpressionOrDeclaration();
+        std::unique_ptr<Expression> parseExpression(uint32_t precedence);
+        std::vector<std::unique_ptr<Statement>> parseProgram();
+        std::optional<Type> parseType(uint32_t precedence);
+        
+        // Statement parsing
+        std::unique_ptr<Statement> parseStatement();
+        std::unique_ptr<Statement> parseDeclaration();
+        std::unique_ptr<Statement> parseExpressionStatement();
+        
+        // Declaration parsing
+        std::unique_ptr<Statement> parseVariableDeclaration(Token identifier);
+        std::unique_ptr<Statement> parseEnumDeclaration(Token identifier);
+        std::unique_ptr<Statement> parseConstDeclaration(Token identifier);
+        std::unique_ptr<Statement> parseClassDeclaration(Token identifier, bool);
+        std::unique_ptr<Statement> parseAliasDeclaration(Token identifier);
+        std::unique_ptr<Statement> parseInterfaceDeclaration(Token identifier);
+        std::unique_ptr<Statement> parseUnionDeclaration(Token identifier);
+        std::unique_ptr<Statement> parseMacroDeclaration(Token identifier);
+        std::unique_ptr<Statement> parseUsingDeclaration(Token);
+        
+        // Control flow parsing
+        std::unique_ptr<Statement> parseReturnStatement(Token);
+        std::unique_ptr<Statement> parseForStatement(Token);
+        std::unique_ptr<Statement> parseWhileStatement(Token);
+        std::unique_ptr<Statement> parseWithStatement(Token);
+        std::unique_ptr<Statement> parseBreakContinueStatement(Token tk);
+        
+        // Expression parsing
+        std::unique_ptr<Expression> parseConditionalExtraction(Token);
+        std::unordered_map<std::string, std::unique_ptr<Expression>> parseObjectLiteral();
+        
+        // Signature and clause parsing
+        std::optional<FunctionSignature> parseFunctionSignature();
+        std::optional<GenericClause> parseGenericClause();
+        std::vector<Attribute> parseAttributeList();
+        UsingStatement::ContentTy parseUsingContent(uint32_t);
+        
+        // Token management
+        std::optional<Token> Peek();
+        std::optional<Token> Get();
+        std::optional<std::pair<Token, SourceLocation>> PeekWithEndLocation();
+        std::optional<std::pair<Token, SourceLocation>> GetWithEndLocation();
+        void pushToken(Token t, SourceLocation loc);
+        bool discard(TokenType t);
+        
+        // Error handling
+        void error(std::string message, std::optional<Token> tk);
+        void synchronizeTo(std::span<const TokenType> t);
+        bool failed() const;
+        
+        // Precedence
+        uint32_t GetNextTypePrecedence();
+        
+        // Utility methods
+        bool canOmitSemiColon(Expression*);
+        const Scanner& getScanner() const;
+        const std::string& getSource() const;
+        
+        // Public members
+        ASTNode* parent = nullptr;
+        SourceLocation discardLocation;
+    };
+}
+```
+
+## Constructor
+
+### Parser()
+
+Constructs a parser for the given source code.
+
+```cpp
+explicit Parser(std::string& source);
+```
+
+<ParamField path="source" type="std::string&">
+  Reference to the source code string to parse. The reference must remain valid for the lifetime of the Parser.
+</ParamField>
+
+## Core Parsing Methods
+
+### parseProgram()
+
+Parses the entire source file into a vector of top-level statements.
+
+```cpp
+std::vector<std::unique_ptr<Statement>> parseProgram();
+```
+
+<ResponseField name="return" type="std::vector<std::unique_ptr<Statement>>">
+  Vector of parsed top-level statements (functions, classes, variables, etc.)
+</ResponseField>
+
+### parseExpression()
+
+Parses an expression with the given precedence level using Pratt parsing.
+
+```cpp
+std::unique_ptr<Expression> parseExpression(uint32_t precedence);
+```
+
+<ParamField path="precedence" type="uint32_t">
+  Minimum precedence level for parsing. Use 0 for lowest precedence.
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Expression>">
+  Parsed expression node
+</ResponseField>
+
+### parseExpressionOrDeclaration()
+
+Parses either an expression or a declaration, automatically detecting which.
+
+```cpp
+std::unique_ptr<ASTNode> parseExpressionOrDeclaration();
+```
+
+<ResponseField name="return" type="std::unique_ptr<ASTNode>">
+  Either an Expression or Statement node
+</ResponseField>
+
+### parseType()
+
+Parses a type annotation.
+
+```cpp
+std::optional<Type> parseType(uint32_t precedence);
+```
+
+<ParamField path="precedence" type="uint32_t">
+  Precedence level for type parsing
+</ParamField>
+
+<ResponseField name="return" type="std::optional<Type>">
+  Parsed type, or std::nullopt if parsing fails
+</ResponseField>
+
+## Statement Parsing
+
+### parseStatement()
+
+Parses a single statement.
+
+```cpp
+std::unique_ptr<Statement> parseStatement();
+```
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Parsed statement node
+</ResponseField>
+
+### parseDeclaration()
+
+Parses a declaration statement (variable, function, class, etc.).
+
+```cpp
+std::unique_ptr<Statement> parseDeclaration();
+```
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Parsed declaration statement
+</ResponseField>
+
+### parseExpressionStatement()
+
+Parses a statement consisting of a single expression.
+
+```cpp
+std::unique_ptr<Statement> parseExpressionStatement();
+```
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Expression wrapped in a statement node
+</ResponseField>
+
+## Declaration Parsing Methods
+
+### parseVariableDeclaration()
+
+Parses a variable declaration.
+
+```cpp
+std::unique_ptr<Statement> parseVariableDeclaration(Token identifier);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the variable name
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Variable declaration statement
+</ResponseField>
+
+### parseClassDeclaration()
+
+Parses a class or struct declaration.
+
+```cpp
+std::unique_ptr<Statement> parseClassDeclaration(Token identifier, bool is_struct);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the class name
+</ParamField>
+
+<ParamField path="is_struct" type="bool">
+  Whether this is a struct (true) or class (false)
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Class declaration statement
+</ResponseField>
+
+### parseEnumDeclaration()
+
+Parses an enum declaration.
+
+```cpp
+std::unique_ptr<Statement> parseEnumDeclaration(Token identifier);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the enum name
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Enum declaration statement
+</ResponseField>
+
+### parseInterfaceDeclaration()
+
+Parses an interface declaration.
+
+```cpp
+std::unique_ptr<Statement> parseInterfaceDeclaration(Token identifier);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the interface name
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Interface declaration statement
+</ResponseField>
+
+### parseUnionDeclaration()
+
+Parses a union type declaration.
+
+```cpp
+std::unique_ptr<Statement> parseUnionDeclaration(Token identifier);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the union name
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Union declaration statement
+</ResponseField>
+
+### parseConstDeclaration()
+
+Parses a constant declaration.
+
+```cpp
+std::unique_ptr<Statement> parseConstDeclaration(Token identifier);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the constant name
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Constant declaration statement
+</ResponseField>
+
+### parseAliasDeclaration()
+
+Parses a type alias declaration.
+
+```cpp
+std::unique_ptr<Statement> parseAliasDeclaration(Token identifier);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the alias name
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Alias declaration statement
+</ResponseField>
+
+### parseMacroDeclaration()
+
+Parses a macro declaration.
+
+```cpp
+std::unique_ptr<Statement> parseMacroDeclaration(Token identifier);
+```
+
+<ParamField path="identifier" type="Token">
+  The identifier token for the macro name
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Macro declaration statement
+</ResponseField>
+
+### parseUsingDeclaration()
+
+Parses a using/import declaration.
+
+```cpp
+std::unique_ptr<Statement> parseUsingDeclaration(Token token);
+```
+
+<ParamField path="token" type="Token">
+  The 'using' keyword token
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Using declaration statement
+</ResponseField>
+
+## Control Flow Parsing
+
+### parseReturnStatement()
+
+Parses a return statement.
+
+```cpp
+std::unique_ptr<Statement> parseReturnStatement(Token token);
+```
+
+<ParamField path="token" type="Token">
+  The 'return' keyword token
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Return statement
+</ResponseField>
+
+### parseForStatement()
+
+Parses a for loop statement.
+
+```cpp
+std::unique_ptr<Statement> parseForStatement(Token token);
+```
+
+<ParamField path="token" type="Token">
+  The 'for' keyword token
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  For loop statement
+</ResponseField>
+
+### parseWhileStatement()
+
+Parses a while loop statement.
+
+```cpp
+std::unique_ptr<Statement> parseWhileStatement(Token token);
+```
+
+<ParamField path="token" type="Token">
+  The 'while' keyword token
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  While loop statement
+</ResponseField>
+
+### parseWithStatement()
+
+Parses a with statement for resource management.
+
+```cpp
+std::unique_ptr<Statement> parseWithStatement(Token token);
+```
+
+<ParamField path="token" type="Token">
+  The 'with' keyword token
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  With statement
+</ResponseField>
+
+### parseBreakContinueStatement()
+
+Parses a break or continue statement.
+
+```cpp
+std::unique_ptr<Statement> parseBreakContinueStatement(Token tk);
+```
+
+<ParamField path="tk" type="Token">
+  The 'break' or 'continue' keyword token
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Statement>">
+  Break or continue statement
+</ResponseField>
+
+## Expression Parsing
+
+### parseConditionalExtraction()
+
+Parses a conditional extraction expression (pattern matching).
+
+```cpp
+std::unique_ptr<Expression> parseConditionalExtraction(Token token);
+```
+
+<ParamField path="token" type="Token">
+  The starting token
+</ParamField>
+
+<ResponseField name="return" type="std::unique_ptr<Expression>">
+  Conditional extraction expression
+</ResponseField>
+
+### parseObjectLiteral()
+
+Parses an object literal expression.
+
+```cpp
+std::unordered_map<std::string, std::unique_ptr<Expression>> parseObjectLiteral();
+```
+
+<ResponseField name="return" type="std::unordered_map<std::string, std::unique_ptr<Expression>>">
+  Map of field names to their initializer expressions
+</ResponseField>
+
+## Signature and Metadata Parsing
+
+### parseFunctionSignature()
+
+Parses a function signature (parameters and return type).
+
+```cpp
+std::optional<FunctionSignature> parseFunctionSignature();
+```
+
+<ResponseField name="return" type="std::optional<FunctionSignature>">
+  Parsed function signature, or std::nullopt on error
+</ResponseField>
+
+### parseGenericClause()
+
+Parses a generic type parameter clause.
+
+```cpp
+std::optional<GenericClause> parseGenericClause();
+```
+
+<ResponseField name="return" type="std::optional<GenericClause>">
+  Parsed generic clause, or std::nullopt on error
+</ResponseField>
+
+### parseAttributeList()
+
+Parses a list of attributes (like `#(public)`, `#(inline)`).
+
+```cpp
+std::vector<Attribute> parseAttributeList();
+```
+
+<ResponseField name="return" type="std::vector<Attribute>">
+  Vector of parsed attributes
+</ResponseField>
+
+### parseUsingContent()
+
+Parses the content of a using declaration with generic support.
+
+```cpp
+UsingStatement::ContentTy parseUsingContent(uint32_t generic_number);
+```
+
+<ParamField path="generic_number" type="uint32_t">
+  Current generic parameter number for nested generic tracking
+</ParamField>
+
+<ResponseField name="return" type="UsingStatement::ContentTy">
+  Parsed using statement content
+</ResponseField>
+
+## Token Management
+
+### Peek()
+
+Peeks at the next token without consuming it.
+
+```cpp
+std::optional<Token> Peek();
+```
+
+<ResponseField name="return" type="std::optional<Token>">
+  The next token, or std::nullopt if at end of file
+</ResponseField>
+
+### Get()
+
+Consumes and returns the next token.
+
+```cpp
+std::optional<Token> Get();
+```
+
+<ResponseField name="return" type="std::optional<Token>">
+  The consumed token, or std::nullopt if at end of file
+</ResponseField>
+
+### PeekWithEndLocation()
+
+Peeks at the next token along with its end location.
+
+```cpp
+std::optional<std::pair<Token, SourceLocation>> PeekWithEndLocation();
+```
+
+<ResponseField name="return" type="std::optional<std::pair<Token, SourceLocation>>">
+  Pair of token and its end location, or std::nullopt if at end of file
+</ResponseField>
+
+### GetWithEndLocation()
+
+Consumes the next token along with its end location.
+
+```cpp
+std::optional<std::pair<Token, SourceLocation>> GetWithEndLocation();
+```
+
+<ResponseField name="return" type="std::optional<std::pair<Token, SourceLocation>>">
+  Pair of consumed token and its end location, or std::nullopt if at end of file
+</ResponseField>
+
+### pushToken()
+
+Pushes a token back onto the parser buffer for re-reading.
+
+```cpp
+void pushToken(Token t, SourceLocation loc);
+```
+
+<ParamField path="t" type="Token">
+  The token to push back
+</ParamField>
+
+<ParamField path="loc" type="SourceLocation">
+  The end location of the token
+</ParamField>
+
+### discard()
+
+Attempts to discard a token of the expected type.
+
+```cpp
+bool discard(TokenType t);
+```
+
+<ParamField path="t" type="TokenType">
+  The expected token type
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  true if the token was discarded, false if the next token doesn't match
+</ResponseField>
+
+## Error Handling
+
+### error()
+
+Reports a parse error.
+
+```cpp
+void error(std::string message, std::optional<Token> tk);
+```
+
+<ParamField path="message" type="std::string">
+  Error message to report
+</ParamField>
+
+<ParamField path="tk" type="std::optional<Token>">
+  Token where the error occurred, or std::nullopt for general errors
+</ParamField>
+
+### synchronizeTo()
+
+Skips tokens until reaching one of the specified types (for error recovery).
+
+```cpp
+void synchronizeTo(std::span<const TokenType> t);
+```
+
+<ParamField path="t" type="std::span<const TokenType>">
+  List of token types to synchronize to
+</ParamField>
+
+### failed()
+
+Checks if the parser has encountered any errors.
+
+```cpp
+bool failed() const;
+```
+
+<ResponseField name="return" type="bool">
+  true if parsing has failed, false otherwise
+</ResponseField>
+
+## Utility Methods
+
+### GetNextTypePrecedence()
+
+Gets the precedence of the next type operator.
+
+```cpp
+uint32_t GetNextTypePrecedence();
+```
+
+<ResponseField name="return" type="uint32_t">
+  Precedence value for the next type operator
+</ResponseField>
+
+### canOmitSemiColon()
+
+Checks if a semicolon can be omitted after the given expression.
+
+```cpp
+bool canOmitSemiColon(Expression* expr);
+```
+
+<ParamField path="expr" type="Expression*">
+  Expression to check
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  true if semicolon can be omitted, false otherwise
+</ResponseField>
+
+### getScanner()
+
+Gets a reference to the underlying scanner.
+
+```cpp
+const Scanner& getScanner() const;
+```
+
+<ResponseField name="return" type="const Scanner&">
+  Reference to the Scanner instance
+</ResponseField>
+
+### getSource()
+
+Gets a reference to the source code string.
+
+```cpp
+const std::string& getSource() const;
+```
+
+<ResponseField name="return" type="const std::string&">
+  Reference to the source code
+</ResponseField>
+
+## Public Members
+
+### parent
+
+Pointer to the parent AST node during parsing.
+
+```cpp
+ASTNode* parent = nullptr;
+```
+
+### discardLocation
+
+Location of the last discarded token.
+
+```cpp
+SourceLocation discardLocation;
+```
+
+## Usage Example
+
+```cpp
+std::string source = R"(
+    fn main() {
+        println("Hello, Yoyo!");
+    }
+)";
+
+Parser parser(source);
+auto program = parser.parseProgram();
+
+if (parser.failed()) {
+    std::cerr << "Parsing failed!" << std::endl;
+    return 1;
+}
+
+// Process the AST
+for (auto& stmt : program) {
+    // Process each statement
+}
+```
+
+## See Also
+
+- [Scanner](/api/scanner) - Tokenization of source code
+- [Engine](/api/engine) - Execution engine
+- [ModuleBase](/api/module) - Module management

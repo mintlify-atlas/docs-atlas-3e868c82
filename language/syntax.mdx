@@ -1,0 +1,458 @@
+---
+title: Syntax
+description: Learn the fundamental syntax of the Yoyo programming language
+---
+
+## Overview
+
+Yoyo uses a clean, modern syntax inspired by Rust and C++. This page covers the core syntactic elements of the language.
+
+## Comments
+
+Yoyo supports both line and block comments:
+
+```yoyo
+// This is a line comment
+
+/* This is a 
+   block comment */
+```
+
+## Variables
+
+### Variable Declaration
+
+Variables are declared using the `:` operator, optionally with `mut` for mutability:
+
+```yoyo
+// Immutable variable with type inference
+value := 42;
+
+// Mutable variable
+counter: mut = 0;
+
+// Explicit type annotation
+name: str = "Yoyo";
+
+// Mutable with explicit type
+data: mut i32 = 100;
+```
+
+<Note>
+Variables are **immutable by default**. Use the `mut` keyword to make them mutable.
+</Note>
+
+### Assignment
+
+Assignment uses the `=` operator:
+
+```yoyo
+x: mut = 10;
+x = 20; // OK, x is mutable
+
+y := 30;
+// y = 40; // Error: y is immutable
+```
+
+## Control Flow
+
+### If Expressions
+
+If statements in Yoyo are expressions that can return values:
+
+```yoyo
+result := if (condition) "yes" else "no";
+
+// Multi-line blocks
+value := if (x > 0) {
+    "positive"
+} else if (x < 0) {
+    "negative"  
+} else {
+    "zero"
+};
+```
+
+### While Loops
+
+```yoyo
+while (condition) {
+    // loop body
+}
+
+count: mut = 0;
+while (count < 10) {
+    count = count + 1;
+}
+```
+
+### For Loops
+
+For loops iterate over iterables:
+
+```yoyo
+for (item in collection) {
+    // use item
+}
+
+// Destructuring tuples
+for (idx, value in enumerated_iter) {
+    app::func(&"${idx}: ${value}");
+}
+```
+
+<Accordion title="Example: Iterating with enumerate">
+```yoyo
+list := LinkedList::<str>::new();
+list.append("Hello");
+list.append("World");
+
+for (lol in list.iter().enumerate()) {
+    app::func(&"${lol.0}: ${*lol.1}");
+}
+```
+</Accordion>
+
+### Break and Continue
+
+```yoyo
+while (true) {
+    if (condition) break;
+    if (other_condition) continue;
+}
+```
+
+## Pattern Matching
+
+### Conditional Extraction
+
+Yoyo uses the `if |var| (expr)` syntax for optional unwrapping:
+
+```yoyo
+opt: i32? = get_optional();
+
+if |value| (opt) {
+    // value is available here
+    do_something(value);
+} else {
+    // opt was null
+}
+```
+
+### With Statements
+
+The `with` statement binds a value to a name within a scope:
+
+```yoyo
+with elem as access(arr) {
+    // elem is available here
+}
+```
+
+## Literals
+
+### Integer Literals
+
+```yoyo
+decimal := 42;
+// Underscores for readability
+large := 1_000_000;
+```
+
+### Floating Point Literals
+
+```yoyo
+pi := 3.14159;
+small := 0.001;
+```
+
+### Boolean Literals
+
+```yoyo
+is_ready := true;
+is_done := false;
+```
+
+### String Literals
+
+Yoyo supports string interpolation with `${}`:
+
+```yoyo
+name := "World";
+greeting := "Hello, ${name}!";
+
+value := 42;
+message := "The answer is ${value}";
+```
+
+### Character Literals
+
+```yoyo
+letter := 'A';
+newline := '\n';
+```
+
+### Null Literal
+
+```yoyo
+opt: i32? = null;
+```
+
+### Array Literals
+
+```yoyo
+// Array of integers
+numbers := [1, 2, 3, 4, 5];
+
+// Array with explicit type and size
+fixed: [i32; 3] = [10, 20, 30];
+
+// Repeat syntax: [value; count]
+zeroes := [0; 10]; // Array of 10 zeros
+```
+
+### Tuple Literals
+
+```yoyo
+pair := (42, "hello");
+triple := (1, 2.5, true);
+```
+
+## Operators
+
+### Arithmetic Operators
+
+```yoyo
+a + b   // Addition
+a - b   // Subtraction  
+a * b   // Multiplication
+a / b   // Division
+a % b   // Modulo
+```
+
+### Comparison Operators
+
+```yoyo
+a == b  // Equal
+a != b  // Not equal
+a < b   // Less than
+a > b   // Greater than
+a <= b  // Less than or equal
+a >= b  // Greater than or equal
+a <=> b // Spaceship (three-way comparison)
+```
+
+### Logical Operators
+
+```yoyo
+a && b  // Logical AND
+a || b  // Logical OR
+!a      // Logical NOT
+```
+
+### Bitwise Operators
+
+```yoyo
+a & b   // Bitwise AND
+a | b   // Bitwise OR
+a ^ b   // Bitwise XOR
+a << b  // Left shift
+a >> b  // Right shift
+```
+
+### Assignment Operators
+
+```yoyo
+x = y
+x += y   // Equivalent to: x = x + y
+x -= y   // Equivalent to: x = x - y
+x *= y   // Equivalent to: x = x * y
+x /= y   // Equivalent to: x = x / y
+x %= y   // Equivalent to: x = x % y
+x &= y   // Equivalent to: x = x & y
+x |= y   // Equivalent to: x = x | y
+x ^= y   // Equivalent to: x = x ^ y
+x <<= y  // Equivalent to: x = x << y
+x >>= y  // Equivalent to: x = x >> y
+```
+
+<Note>
+Compound assignment operators like `+=` are expanded to their full form. The left-hand side is moved.
+</Note>
+
+## Expressions
+
+### Block Expressions
+
+Blocks can be expressions that return their last value:
+
+```yoyo
+result := {
+    temp := calculate();
+    temp * 2
+};
+```
+
+### Function Calls
+
+```yoyo
+result := function_name(arg1, arg2);
+method_call := object.method(arg);
+```
+
+### Member Access
+
+```yoyo
+value := object.field;
+result := struct_instance.method();
+```
+
+### Array/Subscript Access
+
+```yoyo
+element := array[0];
+value := *array[index];
+```
+
+### Scope Resolution
+
+```yoyo
+// Module scope access
+value := Module::function();
+type := Struct::new();
+
+// Enum variants
+player := Player::X;
+```
+
+### Type Casting
+
+The `as` keyword performs type casting:
+
+```yoyo
+value: i32 = 42;
+large := value as i64;
+float_val := value as f32;
+```
+
+## Semicolons
+
+Semicolons are used to terminate statements:
+
+```yoyo
+let x := 10;
+let y := 20;
+```
+
+The last expression in a block doesn't need a semicolon when used as a return value:
+
+```yoyo
+value := {
+    temp := 10;
+    temp * 2  // No semicolon - this is returned
+};
+```
+
+## Module System
+
+### Module Declaration
+
+```yoyo
+my_module: module = MODULE_NAME;
+```
+
+### Using Imports
+
+```yoyo
+// Import all from a module
+use std::*;
+
+// Import specific items
+use sdl::{Window, Renderer};
+
+// Import a single item
+use core::Iterator;
+```
+
+## Keywords
+
+Yoyo reserves the following keywords:
+
+<CodeGroup>
+```text Control Flow
+if
+else
+while
+for
+break
+continue
+return
+```
+
+```text Declarations  
+fn
+struct
+class
+enum
+enum_flag
+union
+interface
+module
+impl
+alias
+const
+```
+
+```text Modifiers
+mut
+pub
+static
+const
+view
+```
+
+```text Types & Memory
+as
+gcnew
+null
+this
+```
+
+```text Other
+in
+inout
+operator
+with
+using
+macro
+spawn
+try
+```
+</CodeGroup>
+
+## Special Syntax
+
+### Attributes
+
+Attributes use `#()` syntax:
+
+```yoyo
+#(public)
+function: fn = { };
+```
+
+### Template/Generic Instantiation
+
+Generics use `::<>` syntax:
+
+```yoyo
+list := LinkedList::<i32>::new();
+iter := Iterator::<str>::from(data);
+```
+
+### Range Operators
+
+```yoyo
+..   // Exclusive range
+..=  // Inclusive range
+```
